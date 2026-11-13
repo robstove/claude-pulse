@@ -96,7 +96,7 @@ test('subagents, compactions, prompts, requests, slow calls, and files show in t
   })
   await $.turn.complete({ answer: '', durationMs: 5_000, isAborted: false, turnId: 'a-t1', agentId: 'a1', reason: 'answer', usage: usage('claude-haiku-5-5', 200) })
   await $.tool.call({ tool: 'Edit', file_path: '/repo/src/a.ts', old_string: 'a', new_string: 'b' })
-  await $.tool.call({ tool: 'Bash', command: 'npm test' })
+  await $.tool.call({ tool: 'Bash', command: 'cd "C:/my repo" && cd sub; npm test' })
   await $.turn.complete({ answer: '', durationMs: 9_000, isAborted: false, turnId: 't1', reason: 'answer', usage: usage('claude-opus-5-5', 500) })
   await $.session.compact({ trigger: 'manual', messages: [SUMMARY, SUMMARY] })
 
@@ -109,6 +109,7 @@ test('subagents, compactions, prompts, requests, slow calls, and files show in t
     expect(await ui.find({ type: 'Text', text: /^1\.0 requests a turn · first token 400ms · 250 tok\/s · web_search 1×/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'src/a.ts' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'Slowest calls' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'Bash · npm test' })).toBeDefined()
     await ui.unmount()
   }
 })

@@ -70,7 +70,9 @@ export const callLabel = (input: Readonly<Record<string, unknown>>): string => {
   for (const key of ['command', 'file_path', 'notebook_path', 'pattern', 'url', 'query', 'description', 'prompt']) {
     const v = input[key]
     if (typeof v === 'string' && v.trim() !== '') {
-      const one = v.trim().split('\n')[0] ?? ''
+      // A leading `cd <dir> &&` names only where the command ran, and it would fill the label before the command shows.
+      const first = v.trim().split('\n')[0] ?? ''
+      const one = first.replace(/^(cd\s+("[^"]*"|'[^']*'|\S+)\s*(&&|;)\s*)+/, '') || first
       return one.length > 80 ? `${one.slice(0, 79)}…` : one
     }
   }

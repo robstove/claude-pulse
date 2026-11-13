@@ -137,7 +137,7 @@ export const slowestLines = (ui: Ui, m: Metrics): RenderElement | null => {
       </Text>
       {slow.map(c => (
         <Box flexDirection="row" columnGap="sm">
-          <Box width="22%">
+          <Box width="12%">
             <Text size="caption" tabular>
               {fmtMs(c.ms)}
             </Text>
