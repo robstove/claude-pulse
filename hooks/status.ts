@@ -6,10 +6,12 @@ import { fmtMs, fmtUsd, level } from './charts'
 // The status line has no color, so a glyph carries the level.
 const GLYPH = { ok: '●', warn: '▲', bad: '■' } as const
 
-/** One line for the prompt hint: context, cost, tool calls, and the last turn's time. */
+/** One line for the prompt hint: context, the 5-hour limit, cost, tool calls, and the last turn's time. */
 export const statusText = (m: Metrics, usage: SessionUsage): string => {
   const ctx = usage.context.percent ?? 0
   const parts = [`${GLYPH[level(ctx, 60, 80)]} ctx ${ctx}%`]
+  const fiveHour = usage.rateLimits.find(l => l.kind === 'five_hour')
+  if (fiveHour) parts.push(`${GLYPH[level(fiveHour.percentUsed, 60, 80)]} 5h ${fiveHour.percentUsed}%`)
   if (usage.cost) parts.push(fmtUsd(usage.cost.usd))
   parts.push(`${m.toolCalls} tools${m.toolErrors > 0 ? ` (${m.toolErrors} err)` : ''}`)
   if (m.mainTurns > 0) parts.push(`last ${fmtMs(m.lastTurnMs)}`)

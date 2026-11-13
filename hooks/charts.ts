@@ -1,4 +1,5 @@
 import type { ModelStat, ToolStat, TurnRecord } from '../types'
+import { percentile } from './derive'
 
 // Mid-tone colors, because an Svg cannot read the theme and must read on dark and light.
 export const HEX = {
@@ -151,7 +152,8 @@ export const toolsSvg = (w: number, tools: [string, ToolStat][]): string => {
     const errW = s.count > 0 ? (s.errors / s.count) * bw : 0
     const shown = toolLabel(name)
     const short = shown.length > 18 ? `${shown.slice(0, 17)}…` : shown
-    const title = `${name}: ${s.count} calls, ${s.errors} errors, ${fmtMs(s.ms)} total, ${fmtMs(s.ms / s.count)} average`
+    const spread = s.samples?.length ? `, p50 ${fmtMs(percentile(s.samples, 0.5))}, p95 ${fmtMs(percentile(s.samples, 0.95))}` : ''
+    const title = `${name}: ${s.count} calls, ${s.errors} errors, ${fmtMs(s.ms)} total, ${fmtMs(s.ms / s.count)} average${spread}`
     return (
       `<g><title>${esc(title)}</title><rect y="${y}" width="${w}" height="${rowH}" fill="transparent"/>` +
       `<text x="0" y="${y + 14}" fill="${HEX.muted}" font-size="11" ${FONT}>${esc(short)}</text>` +

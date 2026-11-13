@@ -1,14 +1,14 @@
 import type { EngineInterface } from 'claude-code'
 
 import type { Metrics } from '../types'
+// The atom's shape tag, so a load refuses what a different Metrics layout saved.
+import { SHAPE } from './state'
 
 // $.state lives only as long as the process; the store keeps a session's metrics for a restart or a --resume.
 const PREFIX = 'session:'
 const INDEX = 'sessions'
-// About 10-20 KB a session keeps 50 well under the store's 4 MiB limit.
+// About 30 KB a session at most (tool samples, 100 file paths) keeps 50 under the store's 4 MiB limit.
 export const KEEP_SESSIONS = 50
-// Matches the atom's shape tag, so a load refuses what a different Metrics layout saved.
-const SHAPE = 'metrics-3'
 
 type Saved = { shape: string; savedAt: number; metrics: Metrics }
 type IndexEntry = { id: string; savedAt: number }
@@ -26,6 +26,26 @@ const isSaved = (v: unknown): v is Saved => {
 export async function loadSession($: EngineInterface, id: string): Promise<Metrics | undefined> {
   const v = await $.store.get(PREFIX + id)
   return isSaved(v) ? v.metrics : undefined
+}
+
+// Cost per local day across every session, so the History section needs no read of 50 saves.
+const DAILY = 'daily'
+const KEEP_DAYS = 60
+
+const isDaily = (v: unknown): v is Record<string, number> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v) && Object.values(v).every(x => typeof x === 'number')
+
+export async function loadDaily($: EngineInterface): Promise<Record<string, number>> {
+  const v = await $.store.get(DAILY)
+  return isDaily(v) ? v : {}
+}
+
+/** Adds a turn's cost to its day and drops days past KEEP_DAYS. */
+export async function addDailyCost($: EngineInterface, day: string, usd: number): Promise<void> {
+  const held = await loadDaily($)
+  const next = { ...held, [day]: (held[day] ?? 0) + usd }
+  const keep = Object.keys(next).sort().slice(-KEEP_DAYS)
+  await $.store.set(DAILY, Object.fromEntries(keep.map(k => [k, next[k] ?? 0])))
 }
 
 /** Saves the session's metrics and drops the oldest sessions past KEEP_SESSIONS. */

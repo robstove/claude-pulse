@@ -1,7 +1,7 @@
 {
   "name": "pulse",
-  "version": "0.1.2",
-  "description": "Live session metrics for Claude Code: cost, context, turn time, tokens, and tool calls in a pane and the prompt hint",
+  "version": "0.2.0",
+  "description": "Live session metrics for Claude Code: cost, rate limits, context, turns, tokens, tools, subagents, files, and daily history in a pane and the prompt hint",
   "types": "./types/index.d.ts",
   "author": {
     "name": "robstove"
