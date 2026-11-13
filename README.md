@@ -7,6 +7,7 @@ Live session metrics for Claude Code. Pulse tracks each session with hooks and s
 - **Turns**: time and cost per turn on one chart, with a live bar that grows once a second while a turn runs.
 - **Tokens**: cache read, cache write, input, and output as one stacked bar.
 - **Tools**: total time per tool, with failed calls in red. Calls that other plugins make through the tool chain are counted apart.
+- **Models**: turns, average time, and tokens for each model that answered, so a `/model` switch shows its own share.
 
 On desktop, VS Code, and mobile the charts are SVG with hover tooltips. The terminal gets block-character bars and sparklines.
 

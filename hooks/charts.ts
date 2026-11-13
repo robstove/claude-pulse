@@ -1,4 +1,4 @@
-import type { ToolStat, TurnRecord } from '../types'
+import type { ModelStat, ToolStat, TurnRecord } from '../types'
 
 // Mid-tone colors, because an Svg cannot read the theme and must read on dark and light.
 export const HEX = {
@@ -99,14 +99,13 @@ export const turnsSvg = (w: number, done: TurnRecord[], firstTurn: number, live:
   const gutter = 34
   const timeH = 40
   const costH = 16
-  const gap = 6
+  const gap = 8
   const h = timeH + gap + costH
   const label = (y: number, text: string) =>
     `<text x="0" y="${y}" fill="${HEX.muted}" font-size="10" ${FONT}>${text}</text>`
-  const frame =
-    label(11, 'Time') +
-    label(timeH + gap + 11, 'Cost') +
-    `<line x1="${gutter}" x2="${w}" y1="${timeH + 0.5}" y2="${timeH + 0.5}" stroke="${HEX.rule}"/>`
+  // Each lane has its own baseline and its bars grow up from it, so no bar reads as a negative value.
+  const rule = (y: number) => `<line x1="${gutter}" x2="${w}" y1="${y - 0.5}" y2="${y - 0.5}" stroke="${HEX.rule}"/>`
+  const frame = label(timeH - 2, 'Time') + label(h - 2, 'Cost') + rule(timeH) + rule(h)
   if (turns.length === 0) {
     return svg(w, h, frame + `<text x="${gutter}" y="${timeH - 8}" fill="${HEX.muted}" font-size="11" ${FONT}>No turns yet</text>`)
   }
@@ -132,8 +131,8 @@ export const turnsSvg = (w: number, done: TurnRecord[], firstTurn: number, live:
     return (
       `<g${isLive ? ' opacity="0.55"' : ''}><title>${esc(title)}</title>` +
       `<rect x="${(x - 1.5).toFixed(1)}" width="${(bw + 3).toFixed(1)}" height="${h}" fill="transparent"/>` +
-      `<rect x="${x.toFixed(1)}" y="${(timeH - th).toFixed(1)}" width="${bw.toFixed(1)}" height="${th.toFixed(1)}" rx="1.5" fill="${timeFill}"/>` +
-      `<rect x="${x.toFixed(1)}" y="${timeH + gap}" width="${bw.toFixed(1)}" height="${ch.toFixed(1)}" rx="1.5" fill="${costFill}"/></g>`
+      `<rect x="${x.toFixed(1)}" y="${(timeH - 1 - th).toFixed(1)}" width="${bw.toFixed(1)}" height="${th.toFixed(1)}" rx="1.5" fill="${timeFill}"/>` +
+      `<rect x="${x.toFixed(1)}" y="${(h - 1 - ch).toFixed(1)}" width="${bw.toFixed(1)}" height="${ch.toFixed(1)}" rx="1.5" fill="${costFill}"/></g>`
     )
   })
   return svg(w, h, frame + cols.join(''))
@@ -166,6 +165,53 @@ export const toolsSvg = (w: number, tools: [string, ToolStat][]): string => {
     )
   })
   return svg(w, Math.max(rowH, tools.length * rowH), rows.join(''))
+}
+
+/** `claude-opus-5-5` reads as `opus-5-5`; the hover title keeps the full id. */
+export const modelLabel = (id: string): string => id.replace(/^claude-/, '')
+
+/** One row per model: its tokens as a bar split like the token mix, sized against the busiest model. */
+export const modelsSvg = (w: number, models: [string, ModelStat][]): string => {
+  const rowH = 20
+  const labelW = Math.min(132, Math.round(w * 0.32))
+  const statW = 92
+  const barW = w - labelW - statW - 8
+  const total = (s: ModelStat) => s.cacheReadTokens + s.cacheWriteTokens + s.inputTokens + s.outputTokens
+  const max = Math.max(1, ...models.map(([, s]) => total(s)))
+  const rows = models.map(([id, s], i) => {
+    const y = i * rowH
+    const bw = Math.max(3, (total(s) / max) * barW)
+    let x = labelW
+    const segs = (
+      [
+        [s.cacheReadTokens, HEX.cacheRead],
+        [s.cacheWriteTokens, HEX.cacheWrite],
+        [s.inputTokens, HEX.input],
+        [s.outputTokens, HEX.output],
+      ] as const
+    )
+      .filter(([v]) => v > 0)
+      .map(([v, color]) => {
+        const sw = (v / Math.max(1, total(s))) * bw
+        const r = `<rect x="${x.toFixed(1)}" y="${y + 6}" width="${Math.max(sw, 1.5).toFixed(1)}" height="8" fill="${color}"/>`
+        x += sw
+        return r
+      })
+    const avg = s.mainTurns > 0 ? `, avg ${fmtMs(s.ms / s.mainTurns)} per main turn` : ''
+    const title =
+      `${id}: ${s.turns} turns${avg}, ${fmtNum(s.inputTokens)} input, ${fmtNum(s.outputTokens)} output, ` +
+      `${fmtNum(s.cacheReadTokens)} cache read, ${fmtNum(s.cacheWriteTokens)} cache write`
+    return (
+      `<g><title>${esc(title)}</title><rect y="${y}" width="${w}" height="${rowH}" fill="transparent"/>` +
+      `<text x="0" y="${y + 14}" fill="${HEX.muted}" font-size="11" ${FONT}>${esc(modelLabel(id))}</text>` +
+      `<clipPath id="m${i}"><rect x="${labelW}" y="${y + 6}" width="${bw.toFixed(1)}" height="8" rx="4"/></clipPath>` +
+      `<rect x="${labelW}" y="${y + 6}" width="${barW}" height="8" rx="4" fill="${HEX.track}"/>` +
+      `<g clip-path="url(#m${i})">${segs.join('')}</g>` +
+      `<text x="${w}" y="${y + 14}" text-anchor="end" fill="${HEX.muted}" font-size="11" font-variant-numeric="tabular-nums" ${FONT}>` +
+      `${s.turns} ${s.turns === 1 ? 'turn' : 'turns'} · ${esc(fmtNum(s.outputTokens))} out</text></g>`
+    )
+  })
+  return svg(w, Math.max(rowH, models.length * rowH), rows.join(''))
 }
 
 // Terminal fallbacks: block characters in colored Text.

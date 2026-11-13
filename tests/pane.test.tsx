@@ -110,6 +110,44 @@ test('a running turn ticks once a second and stops when it ends', async ($, on) 
   await $.turn.complete({ answer: '', durationMs: 12_400, isAborted: false, turnId: 't1', reason: 'answer' })
   const done = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect(await done.find({ type: 'Text', text: /^Running/ })).toBeUndefined()
-  expect(await done.find({ type: 'Text', text: /^1 · avg 12s/ })).toBeDefined()
+  expect(await done.find({ type: 'Text', text: /^1 turn · avg 12s/ })).toBeDefined()
   await done.unmount()
+})
+
+test('each model gets its own row of turns and tokens', async ($, on) => {
+  on('command.register', () => ({ value: { command: 'pulse' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.status', () => ({ value: undefined }))
+  on('ui.invalidate', () => ({ value: undefined }))
+  on('clock.every', () => ({ value: undefined }))
+  on('clock.now', () => ({ value: 1_000 }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.usage', () => ({ value: { startedAt: 0, context: { tokens: 1_000, window: 200_000, percent: 1 }, rateLimits: [], cost: { usd: 0.5 } } }))
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
+  const usage = (model: string, output: number) => ({
+    model,
+    input_tokens: 10,
+    output_tokens: output,
+    cache_read_input_tokens: 1_000,
+    cache_creation_input_tokens: 0,
+  })
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  for (const [id, model, out] of [['t1', 'claude-opus-5-5', 2_000], ['t2', 'claude-haiku-5-5', 300], ['t3', 'claude-opus-5-5', 1_000]] as const) {
+    await $.turn.start({ text: 'hi', turnId: id })
+    await $.turn.complete({ answer: '', durationMs: 4_000, isAborted: false, turnId: id, reason: 'answer', usage: usage(model, out) })
+  }
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(await ui.find({ type: 'Text', text: '2 models' })).toBeDefined()
+    if (surface === 'terminal') {
+      expect(await ui.find({ type: 'Text', text: /^2 turns · 3\.0k out · avg 4s/ })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: /^1 turn · 300 out/ })).toBeDefined()
+    } else {
+      expect(await ui.find({ type: 'Svg', alt: /2 models/ })).toBeDefined()
+    }
+    await ui.unmount()
+  }
 })

@@ -10,6 +10,8 @@ import {
   gaugeSvg,
   heightOf,
   level,
+  modelLabel,
+  modelsSvg,
   sparkline,
   stackSvg,
   toolLabel,
@@ -57,6 +59,7 @@ export const drawPane = ({ Box, Text, Svg }: Kit, { m, usage, elapsedMs, columns
   const cachedPct = inTotal > 0 ? Math.round((m.cacheReadTokens / inTotal) * 100) : 0
   const costPending = m.turns.length > 0 && m.turns.every(t => t.costUsd === null)
   const pluginCalls = Object.entries(m.pluginCalls)
+  const models = Object.entries(m.models ?? {}).sort((a, b) => b[1].outputTokens - a[1].outputTokens)
 
   const chart = (source: string, alt: string, isInteractive = true) =>
     Svg ? <Svg source={source} alt={alt} width={px} height={heightOf(source)} isInteractive={isInteractive || undefined} /> : null
@@ -139,7 +142,7 @@ export const drawPane = ({ Box, Text, Svg }: Kit, { m, usage, elapsedMs, columns
         ) : m.mainTurns === 0 ? (
           'none yet'
         ) : (
-          `${m.mainTurns}${m.agentTurns > 0 ? ` + ${m.agentTurns} subagent` : ''} · avg ${fmtMs(avgMs)} · max ${fmtMs(m.longestTurnMs)}`
+          `${m.mainTurns} ${m.mainTurns === 1 ? 'turn' : 'turns'}${m.agentTurns > 0 ? ` + ${m.agentTurns} subagent` : ''} · avg ${fmtMs(avgMs)} · max ${fmtMs(m.longestTurnMs)}`
         ),
         [
           Svg
@@ -162,13 +165,16 @@ export const drawPane = ({ Box, Text, Svg }: Kit, { m, usage, elapsedMs, columns
         tokenTotal === 0 ? 'none yet' : `${fmtNum(tokenTotal)} · ${cachedPct}% of input cached`,
         [
           Svg ? chart(stackSvg(px, tokenParts), 'Token mix') : termBar(inTotal > 0 ? m.cacheReadTokens / inTotal : 0, 'suggestion'),
-          <Box flexDirection="row" flexWrap="wrap" columnGap="md" rowGap="xs">
+          // Two fixed columns, so the four entries never wrap 3 + 1.
+          <Box flexDirection="row" flexWrap="wrap" rowGap="xs">
             {tokenParts.map(p => (
+              <Box width="50%">
               <Text size="caption">
                 <Text backgroundColor={p.color}>{'  '}</Text>
                 <Text dimColor> {p.label} </Text>
                 <Text tabular>{fmtNum(p.value)}</Text>
               </Text>
+              </Box>
             ))}
           </Box>,
         ],
@@ -201,21 +207,27 @@ export const drawPane = ({ Box, Text, Svg }: Kit, { m, usage, elapsedMs, columns
         ),
       )}
 
-      {(Object.keys(m.byModel).length > 0 || pluginCalls.length > 0) && (
-        <Box flexDirection="column">
-          {Object.keys(m.byModel).length > 0 && (
-            <Text size="caption" dimColor>
-              {Object.entries(m.byModel)
-                .map(([id, n]) => `${id} · ${n} ${n === 1 ? 'turn' : 'turns'}`)
-                .join('   ')}
-            </Text>
-          )}
-          {pluginCalls.length > 0 && (
-            <Text size="caption" dimColor>
-              Not counted above: {pluginCalls.map(([p, n]) => `${n} calls by ${p}`).join(', ')}
-            </Text>
-          )}
-        </Box>
+      {models.length > 0 &&
+        section(
+          'Models',
+          `${models.length} ${models.length === 1 ? 'model' : 'models'}`,
+          Svg
+            ? chart(modelsSvg(px, models), `Tokens per model, ${models.length} models`)!
+            : models.map(([id, s]) => (
+                <Text>
+                  <Text dimColor>{modelLabel(id).slice(0, 13).padEnd(14)}</Text>
+                  <Text tabular>
+                    {s.turns} {s.turns === 1 ? 'turn' : 'turns'} · {fmtNum(s.outputTokens)} out
+                    {s.mainTurns > 0 ? ` · avg ${fmtMs(s.ms / s.mainTurns)}` : ''}
+                  </Text>
+                </Text>
+              )),
+        )}
+
+      {pluginCalls.length > 0 && (
+        <Text size="caption" dimColor>
+          Not counted above: {pluginCalls.map(([p, n]) => `${n} calls by ${p}`).join(', ')}
+        </Text>
       )}
     </Box>
   )

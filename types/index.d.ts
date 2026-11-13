@@ -12,6 +12,17 @@ export type TurnRecord = {
   isAborted: boolean
 }
 
+/** One model's share: every turn it answered last, main or subagent; time counts main turns only. */
+export type ModelStat = {
+  turns: number
+  mainTurns: number
+  ms: number
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+}
+
 export type Metrics = {
   mainTurns: number
   agentTurns: number
@@ -27,7 +38,8 @@ export type Metrics = {
   toolErrors: number
   toolMsTotal: number
   byTool: Record<string, ToolStat>
-  byModel: Record<string, number>
+  /** Optional, so values stored before 0.1.1 still load under the same shape tag. */
+  models?: Record<string, ModelStat>
   /** Calls another plugin made through the tool chain, by plugin name; not the model's. */
   pluginCalls: Record<string, number>
   turns: TurnRecord[]

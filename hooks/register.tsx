@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
-import type { Register } from 'claude-code'
+import type { Register, TurnUsage } from 'claude-code'
 
-import type { Metrics, TurnRecord } from '../types'
+import type { Metrics, ModelStat, TurnRecord } from '../types'
 import { drawPane } from './pane'
 import { statusText } from './status'
 
@@ -24,10 +24,31 @@ const EMPTY: Metrics = {
   toolErrors: 0,
   toolMsTotal: 0,
   byTool: {},
-  byModel: {},
+  models: {},
   pluginCalls: {},
   turns: [],
   lastCostUsd: null,
+}
+
+// The turn counts toward the model that sent its last counted response; a mid-turn /model switch credits the new one.
+const addModelTurn = (
+  models: Record<string, ModelStat>,
+  u: TurnUsage,
+  mainMs: number | null,
+): Record<string, ModelStat> => {
+  const prev = models[u.model] ?? { turns: 0, mainTurns: 0, ms: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }
+  return {
+    ...models,
+    [u.model]: {
+      turns: prev.turns + 1,
+      mainTurns: prev.mainTurns + (mainMs !== null ? 1 : 0),
+      ms: prev.ms + (mainMs ?? 0),
+      inputTokens: prev.inputTokens + u.input_tokens,
+      outputTokens: prev.outputTokens + u.output_tokens,
+      cacheReadTokens: prev.cacheReadTokens + u.cache_read_input_tokens,
+      cacheWriteTokens: prev.cacheWriteTokens + u.cache_creation_input_tokens,
+    },
+  }
 }
 
 // Change the shape tag when a Metrics field changes: stored values outlive a reload.
@@ -115,7 +136,7 @@ export const register: Register = on => {
         turnMsTotal: m.turnMsTotal + (isMain ? e.durationMs : 0),
         lastTurnMs: isMain ? e.durationMs : m.lastTurnMs,
         longestTurnMs: isMain ? Math.max(m.longestTurnMs, e.durationMs) : m.longestTurnMs,
-        byModel: u ? { ...m.byModel, [u.model]: (m.byModel[u.model] ?? 0) + 1 } : m.byModel,
+        models: u ? addModelTurn(m.models ?? {}, u, isMain ? e.durationMs : null) : m.models,
         turns: isMain ? [...m.turns, record].slice(-MAX_TURNS) : m.turns,
         lastCostUsd: isMain && costNow !== null ? costNow : m.lastCostUsd,
       }
