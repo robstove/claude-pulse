@@ -2,7 +2,7 @@
 
 Live session metrics for Claude Code. Pulse tracks each session with hooks and shows the figures in a pane beside the chat and on the hint line under the prompt.
 
-<img src="docs/screenshot.png" alt="The Pulse pane in the Claude Code desktop app, with session cost, context gauge, turn time and cost chart, token mix, time per tool, and tokens per model" width="415">
+<img src="docs/screenshot.png" alt="The Pulse pane in the Claude Code desktop app, with session cost, rate limits, context fill, turn time and cost, activity split, token mix, time per tool with the slowest calls, tokens per model, subagents, and cost per day" width="415">
 
 - **Cost and elapsed time** for the session, as the status line counts them, with the cost per hour.
 - **Limits**: the 5-hour and 7-day rate-limit windows on a subscription, when each resets, the pace this session uses them at, and a red warning when that pace fills a window before it resets.
