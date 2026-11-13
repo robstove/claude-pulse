@@ -2,6 +2,8 @@
 
 Live session metrics for Claude Code. Pulse tracks each session with hooks and shows the figures in a pane beside the chat and on the hint line under the prompt.
 
+<img src="docs/screenshot.png" alt="The Pulse pane in the Claude Code desktop app, with session cost, context gauge, turn time and cost chart, token mix, time per tool, and tokens per model" width="415">
+
 - **Cost and elapsed time** for the session, as the status line counts them.
 - **Context** fill as a gauge that turns amber at 60% and red at 80%.
 - **Turns**: time and cost per turn on one chart, with a live bar that grows once a second while a turn runs.
