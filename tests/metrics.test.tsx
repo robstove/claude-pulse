@@ -165,3 +165,27 @@ test('interrupted turns show in red under the turns chart', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: '1 interrupted' })).toBeDefined()
   await ui.unmount()
 })
+
+test('the activity split counts only turns timed with the gaps, not turns from before', async ($, on) => {
+  const { state, store } = engine(on)
+  // A save from before 0.2.0: 30s of turn time and no gap counter.
+  store.set('session:abc', {
+    shape: 'metrics-3',
+    savedAt: 1,
+    metrics: {
+      mainTurns: 3, agentTurns: 0, abortedTurns: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+      turnMsTotal: 30_000, lastTurnMs: 10_000, longestTurnMs: 10_000, toolCalls: 0, toolErrors: 0, toolMsTotal: 0,
+      byTool: {}, models: {}, pluginCalls: {}, turns: [], lastCostUsd: 0.4,
+    },
+  })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.turn.start({ text: 'hi', turnId: 't1' })
+  await $.turn.complete({ answer: '', durationMs: 2_000, isAborted: false, turnId: 't1', reason: 'answer' })
+  state.now += 6_000
+  await $.turn.start({ text: 'hi', turnId: 't2' })
+  await $.turn.complete({ answer: '', durationMs: 2_000, isAborted: false, turnId: 't2', reason: 'answer' })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: 'Claude 40% · you 60%' })).toBeDefined()
+  await ui.unmount()
+})

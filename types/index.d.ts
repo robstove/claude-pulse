@@ -107,6 +107,8 @@ export type Metrics = {
   commands?: Record<string, number>
   /** Time between main turns, each gap capped at 30 minutes. */
   idleMs?: number
+  /** Main turn time counted from the same load as idleMs, so the Activity split compares like with like. */
+  workMs?: number
   lastEndedAt?: number
   slowest?: SlowCall[]
   /** Edits per file path by Edit, Write, MultiEdit, and NotebookEdit. */

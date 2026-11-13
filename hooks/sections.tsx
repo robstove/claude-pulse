@@ -68,7 +68,7 @@ export const limitsSection = (ui: Ui, paces: readonly Pace[]): RenderElement | n
 }
 
 export const activitySection = (ui: Ui, m: Metrics): RenderElement | null => {
-  const claude = m.turnMsTotal
+  const claude = m.workMs ?? 0
   const you = m.idleMs ?? 0
   const prompts = m.prompts ?? 0
   if (claude + you === 0 && prompts === 0) return null

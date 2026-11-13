@@ -165,6 +165,7 @@ export const register: Register = on => {
         lastCostUsd: isMain && costNow !== null ? costNow : m.lastCostUsd,
         endReasons: isMain ? { ...m.endReasons, [e.reason]: (m.endReasons?.[e.reason] ?? 0) + 1 } : m.endReasons,
         agents: agentType !== null ? addAgentTurn(m.agents ?? {}, agentType, e.durationMs, u) : m.agents,
+        workMs: (m.workMs ?? 0) + (isMain ? e.durationMs : 0),
         lastEndedAt: isMain ? now : m.lastEndedAt,
         rateStart: isMain ? nextRateStart(m.rateStart, limits, now) : m.rateStart,
       }
