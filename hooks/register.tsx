@@ -1,8 +1,9 @@
 import { atom, read, update } from 'claude-code'
-import type { Register, TurnUsage } from 'claude-code'
+import type { EngineInterface, Register, TurnUsage } from 'claude-code'
 
 import type { Metrics, ModelStat, TurnRecord } from '../types'
 import { drawPane } from './pane'
+import { loadSession, saveSession } from './persist'
 import { statusText } from './status'
 
 const PANE = 'pulse'
@@ -56,6 +57,21 @@ const metrics = atom({ plugin: 'pulse', key: 'metrics' } as const, EMPTY, {
   shape: 'metrics-3',
 })
 
+const hasData = (m: Metrics): boolean => m.mainTurns > 0 || m.agentTurns > 0 || m.toolCalls > 0
+
+// Binds $.state to this session id: keeps a match, adopts a pre-0.1.2 value that has no id, else loads what the store saved.
+async function adoptSession($: EngineInterface): Promise<void> {
+  const id = await $.session.id()
+  const m = await read($, metrics)
+  if (m.sessionId === id) return
+  if (m.sessionId === undefined && hasData(m)) {
+    await update($, metrics, held => ({ ...held, sessionId: id }))
+    return
+  }
+  const saved = await loadSession($, id)
+  await update($, metrics, () => ({ ...(saved ?? EMPTY), sessionId: id }))
+}
+
 export const register: Register = on => {
   // Tool calls of the running main turn; a reload mid-turn undercounts that one turn.
   let turnToolCalls = 0
@@ -69,8 +85,11 @@ export const register: Register = on => {
       description: 'Show token, timing, and tool metrics for this session',
     })
     void $.ui.open({ id: PANE, title: TITLE })
-    // Clears the labeled status line an earlier version pinned; the summary now sits in the prompt hint.
-    $.ui.status(undefined)
+    try {
+      await adoptSession($)
+    } catch {
+      // The pane starts from what $.state holds; the next turn's save tries the store again.
+    }
 
     return next(e)
   })
@@ -141,6 +160,12 @@ export const register: Register = on => {
         lastCostUsd: isMain && costNow !== null ? costNow : m.lastCostUsd,
       }
     })
+    try {
+      const m = await read($, metrics)
+      if (m.sessionId !== undefined) await saveSession($, m.sessionId, m)
+    } catch {
+      // A failed save leaves the previous one in the store; the next turn saves again.
+    }
 
     return next(e)
   })

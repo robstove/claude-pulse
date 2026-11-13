@@ -151,3 +151,81 @@ test('each model gets its own row of turns and tokens', async ($, on) => {
     await ui.unmount()
   }
 })
+
+// The store and session id the persistence tests share; each test gets its own copy.
+const world = (on: Parameters<Parameters<typeof test>[1]>[1], entries: Record<string, unknown> = {}) => {
+  const store = new Map<string, unknown>(Object.entries(entries))
+  const ids = { current: 'abc' }
+  on('command.register', () => ({ value: { command: 'pulse' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.invalidate', () => ({ value: undefined }))
+  on('clock.every', () => ({ value: undefined }))
+  on('clock.now', () => ({ value: 5_000 }))
+  on('session.id', () => ({ value: ids.current }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.usage', () => ({ value: { startedAt: 0, context: { tokens: 1_000, window: 200_000, percent: 1 }, rateLimits: [], cost: { usd: 0.5 } } }))
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
+  on('store.get', (_, e) => ({ value: store.get(e.key) }))
+  on('store.set', (_, e) => {
+    store.set(e.key, JSON.parse(JSON.stringify(e.value)))
+    return { value: undefined }
+  })
+  on('store.delete', (_, e) => {
+    store.delete(e.key)
+    return { value: undefined }
+  })
+  return { store, ids }
+}
+
+const saved = (mainTurns: number) => ({
+  shape: 'metrics-3',
+  savedAt: 1,
+  metrics: {
+    mainTurns, agentTurns: 0, abortedTurns: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+    turnMsTotal: mainTurns * 3_000, lastTurnMs: 3_000, longestTurnMs: 3_000, toolCalls: 0, toolErrors: 0, toolMsTotal: 0,
+    byTool: {}, models: {}, pluginCalls: {}, turns: [], lastCostUsd: 0.4,
+  },
+})
+
+test('a resumed session reloads the metrics it saved', async ($, on) => {
+  world(on, { 'session:abc': saved(5) })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /^5 turns · avg 3s/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('each turn saves the session and the store keeps the newest 50', async ($, on) => {
+  const old = Array.from({ length: 50 }, (_, i) => ({ id: `s${i}`, savedAt: i }))
+  const { store } = world(on, {
+    sessions: old,
+    ...Object.fromEntries(old.map(x => [`session:${x.id}`, saved(1)])),
+  })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.turn.start({ text: 'hi', turnId: 't1' })
+  await $.turn.complete({ answer: '', durationMs: 2_000, isAborted: false, turnId: 't1', reason: 'answer' })
+
+  const mine = store.get('session:abc') as { metrics: { mainTurns: number; sessionId: string } }
+  expect(mine.metrics.mainTurns).toBe(1)
+  expect(mine.metrics.sessionId).toBe('abc')
+  const index = store.get('sessions') as { id: string }[]
+  expect(index.length).toBe(50)
+  expect(index[index.length - 1]?.id).toBe('abc')
+  expect(store.has('session:s0')).toBe(false)
+  expect(store.has('session:s1')).toBe(true)
+})
+
+test('a new session id after /clear starts the pane empty', async ($, on) => {
+  const { ids } = world(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.turn.start({ text: 'hi', turnId: 't1' })
+  await $.turn.complete({ answer: '', durationMs: 2_000, isAborted: false, turnId: 't1', reason: 'answer' })
+
+  ids.current = 'after-clear'
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: 'none yet' })).toBeDefined()
+  await ui.unmount()
+})

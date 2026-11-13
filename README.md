@@ -33,7 +33,9 @@ This repository is private. It installs only for people who can read it on GitHu
 
 The pane opens when a session starts. If you close it, `/pulse` opens it again.
 
-Counts start when the plugin loads. Cost, elapsed time, and context come from the engine and cover the whole session. The cost per turn starts with the second turn after a load, because it needs a starting cost.
+Counts start when the plugin first loads in a session. Cost, elapsed time, and context come from the engine and cover the whole session. The cost per turn starts with the second turn, because it needs a starting cost.
+
+Pulse saves each session's metrics in its plugin store at the end of every turn, so a restart or `claude --resume` reopens the pane with the session's history. It keeps the 50 most recent sessions. `/clear` starts a new session, and the pane starts empty.
 
 ## Develop
 

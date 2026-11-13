@@ -44,6 +44,8 @@ export type Metrics = {
   pluginCalls: Record<string, number>
   turns: TurnRecord[]
   lastCostUsd: number | null
+  /** The session these figures belong to; absent on values saved before 0.1.2. */
+  sessionId?: string
 }
 
 declare module 'claude-code' {
