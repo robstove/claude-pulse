@@ -6,11 +6,14 @@ Live session metrics for Claude Code. Pulse tracks each session with hooks and s
 
 - **Cost and elapsed time** for the session, as the status line counts them, with the cost per hour.
 - **Limits**: the 5-hour and 7-day rate-limit windows on a subscription, when each resets, the pace this session uses them at, and a red warning when that pace fills a window before it resets.
-- **Context** fill as a gauge that turns amber at 60% and red at 80%, a line of the fill after each turn, and a mark at each compaction.
+- **Context** fill as a gauge that turns amber at 60% and red at 80% (the `warnAt` and `alertAt` options), a line of the fill after each turn, and a mark at each compaction.
 - **Turns**: time and cost per turn on one chart, with a live bar that grows once a second while a turn runs. Under it: model requests per turn, time to the first token, output tokens per second, effort, server tools such as web search, replies cut at the output limit, and turns that were interrupted or failed.
-- **Activity**: how the active time splits between Claude at work and you between turns, with your prompt and slash-command counts.
+- **Activity**: how the active time splits between Claude at work and you between turns, with your prompt and slash-command counts. Task notifications, schedules, and messages from other sessions are not your prompts and do not count.
 - **Tokens**: cache read, cache write, input, and output as one stacked bar.
 - **Tools**: total time per tool, with failed calls in red and the p50 and p95 time on hover, plus the three slowest calls. Calls that other plugins make through the tool chain are counted apart.
+  - A call that a permission rule, a hook, or you refused counts as refused, not as failed, and adds no time.
+  - A call that went to a permission decision, from you or from auto mode's classifier, keeps its time apart, as "with approval", because Claude Code does not report when the decision ends. Tool time, p50, p95, and the slowest calls leave these calls out. In auto mode most calls that write go to the classifier, so most of their time shows as "with approval".
+  - A command sent to the background, a background subagent, a workflow, or a monitor with a timeout is timed until its notification says it ended. The Tools line shows how many still run.
 - **Files**: the files that Edit, Write, MultiEdit, and NotebookEdit changed, most edited first.
 - **Models**: turns, average time, and tokens for each model that answered, so a `/model` switch shows its own share.
 - **Subagents**: starts, time, tokens, and model for each subagent type.
@@ -50,9 +53,23 @@ A slow call's label holds a name, never content: the description Claude wrote fo
 
 A fault in Pulse never reaches a tool call, a turn, or the prompt hint. If its metrics fail to load, the pane shows a line that says so.
 
+## Options
+
+Set them with `claude plugin configure pulse`, then start a new session.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `warnAt` | `60` | the fill, in percent, at which the context and rate-limit meters turn amber |
+| `alertAt` | `80` | the fill at which they turn red; a pair out of order counts as not set |
+
 ## Develop
 
 ```bash
 claude plugin validate .
 claude plugin test .
+node scripts/check-surface.mjs
 ```
+
+`scripts/check-surface.mjs` lists each event Pulse hooks and each engine call it makes. It fails when the list differs from `scripts/surface.txt`, so a new hook or call shows in the pull request. A call that reaches outside the session (`$.fs`, `$.process`, `$.model`, `fetch`) fails it whatever the file says. Run it with `--write` after an intended change. CI runs all three checks on Claude Code 2.1.325.
+
+Pulse hooks `tool.call` for every tool. Claude Code then turns off the move of a running call to the background for those tools, as it does for any plugin that hooks them.

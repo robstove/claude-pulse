@@ -2,21 +2,23 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, TurnUsage } from 'claude-code'
 
 import type { AgentStat, ModelStat, TurnRecord } from '../types'
-import { FILE_TOOLS, IDLE_CAP_MS, SAMPLES, callLabel, dayKey, nextRateStart, pushSlow } from './derive'
+import { IDLE_CAP_MS, dayKey, nextRateStart } from './derive'
 import { observe } from './observe'
 import { drawPane } from './pane'
 import { addDailyCost, dropOtherShapes, loadDaily, loadSession, saveSession } from './persist'
 import { quietly } from './quietly'
-import { EMPTY, MAX_TURNS, SHAPE, hasData, live } from './state'
+import { EMPTY, MAX_TURNS, SHAPE, hasData, live, setLevels } from './state'
 import { statusText } from './status'
+import { noteTaskNotice, observeTools } from './tools'
 
 // The state scan reads an atom only where its file declares it, so each file that reads or writes Metrics declares the same one.
 const metrics = atom({ plugin: 'pulse', key: 'metrics' } as const, EMPTY, { shape: SHAPE })
 
 const PANE = 'pulse'
 const TITLE = 'Pulse'
-// Paths stop at 100, so one session save stays near 30 KB.
-const MAX_FILES = 100
+// The running bar redraws each second for the first two minutes of a turn, then every fifth second.
+const FAST_TICKS_MS = 120_000
+const SLOW_TICK = 5
 
 // The turn counts toward the model that sent its last counted response; a mid-turn /model switch credits the new one.
 const addModelTurn = (
@@ -61,14 +63,17 @@ async function adoptSession($: EngineInterface): Promise<void> {
   const saved = await loadSession($, id)
   // A session with no save starts from the cost the ledger holds now, so its first turn has a cost too.
   const cost = saved ? saved.lastCostUsd : ((await $.session.usage()).cost?.usd ?? null)
-  await update($, metrics, () => ({ ...(saved ?? EMPTY), lastCostUsd: cost, sessionId: id }))
+  // A saved task's process ended with the process that saved it, and no notification for it will come.
+  await update($, metrics, () => ({ ...(saved ?? EMPTY), tasks: {}, lastCostUsd: cost, sessionId: id }))
 }
 
 const redraw = ($: EngineInterface): void => void quietly(() => $.ui.invalidate('ui.render'))
 
 // Every engine call goes through quietly: a hook passes its event on and returns what came back, whatever Pulse fails at.
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  setLevels(options)
   observe(on)
+  observeTools(on)
 
   on('session.start', async ($, e, next) => {
     await quietly(() => $.command.register({ name: 'pulse', description: 'Show token, timing, and tool metrics for this session' }))
@@ -88,6 +93,8 @@ export const register: Register = on => {
 
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) {
+      // A notification that wakes an idle session starts a turn; the task it reports on ends here.
+      await quietly(() => noteTaskNotice($, e.text))
       live.toolCalls = 0
       live.steps = 0
       live.startedAt = null
@@ -96,8 +103,12 @@ export const register: Register = on => {
       await quietly(async () => {
         const now = await $.clock.now()
         live.startedAt = now
-        // One redraw a second keeps the elapsed time, cost, and running bar current while the model streams.
-        live.ticker = $.clock.every(1000, () => redraw($))
+        // The ticks keep the elapsed time, cost, and running bar current while the model streams; a state write redraws on its own.
+        let ticks = 0
+        live.ticker = $.clock.every(1000, () => {
+          ticks += 1
+          if (ticks * 1000 <= FAST_TICKS_MS || ticks % SLOW_TICK === 0) redraw($)
+        })
         await update($, metrics, m =>
           m.lastEndedAt === undefined ? m : { ...m, idleMs: (m.idleMs ?? 0) + Math.min(IDLE_CAP_MS, Math.max(0, now - m.lastEndedAt)) },
         )
@@ -166,50 +177,6 @@ export const register: Register = on => {
     })
 
     return next(e)
-  })
-
-  on('tool.call', async ($, e, next) => {
-    // Only the engine's dispatch is the model's call; another plugin's $.tool.call is counted apart.
-    const caller = next.origin.plugin
-    if (caller !== 'engine') {
-      const ran = await next(e)
-      await quietly(() => update($, metrics, m => ({ ...m, pluginCalls: { ...m.pluginCalls, [caller]: (m.pluginCalls[caller] ?? 0) + 1 } })))
-      return ran
-    }
-    const started = await quietly(() => $.clock.now())
-    const ran = await next(e)
-    live.toolCalls += 1
-    await quietly(async () => {
-      const ms = started === undefined ? 0 : (await $.clock.now()) - started
-      const failed = ran.deny !== undefined || ran.isError === true
-      const input = e as unknown as Readonly<Record<string, unknown>>
-      const label = callLabel(input)
-      const path = input.file_path ?? input.notebook_path
-      const file = !failed && FILE_TOOLS.has(e.tool) && typeof path === 'string' ? path : null
-      await update($, metrics, m => {
-        const prev = m.byTool[e.tool] ?? { count: 0, errors: 0, ms: 0 }
-        const files = file === null ? m.files : { ...m.files, [file]: (m.files?.[file] ?? 0) + 1 }
-        return {
-          ...m,
-          toolCalls: m.toolCalls + 1,
-          toolErrors: m.toolErrors + (failed ? 1 : 0),
-          toolMsTotal: m.toolMsTotal + ms,
-          byTool: {
-            ...m.byTool,
-            [e.tool]: {
-              count: prev.count + 1,
-              errors: prev.errors + (failed ? 1 : 0),
-              ms: prev.ms + ms,
-              samples: [...(prev.samples ?? []), ms].slice(-SAMPLES),
-            },
-          },
-          slowest: pushSlow(m.slowest, { tool: e.tool, ms, label }),
-          files: files && Object.keys(files).length > MAX_FILES ? m.files : files,
-        }
-      })
-    })
-
-    return ran
   })
 
   // The summary rides on the hint line under the prompt, because $.ui.status labels it with the plugin name.

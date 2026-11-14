@@ -1,5 +1,6 @@
 import type { ModelStat, ToolStat, TurnRecord } from '../types'
 import { percentile } from './derive'
+import { levels } from './state'
 
 // Mid-tone colors, because an Svg cannot read the theme and must read on dark and light.
 export const HEX = {
@@ -32,8 +33,7 @@ export const fmtMs = (ms: number): string => {
 
 export const fmtUsd = (usd: number): string => (usd >= 1 ? `$${usd.toFixed(2)}` : `$${usd.toFixed(4)}`)
 
-export const level = (value: number, warnAt: number, badAt: number): 'ok' | 'warn' | 'bad' =>
-  value >= badAt ? 'bad' : value >= warnAt ? 'warn' : 'ok'
+export const level = (value: number): 'ok' | 'warn' | 'bad' => (value >= levels.alertAt ? 'bad' : value >= levels.warnAt ? 'warn' : 'ok')
 
 /** `mcp__server__tool` reads as `tool`, so two tools of one server do not truncate to the same label. */
 export const toolLabel = (name: string): string => {
@@ -53,9 +53,9 @@ export const heightOf = (source: string): number => Number(/height="(\d+)"/.exec
 /** A thin gauge filled to `pct` in its status color, with ticks at the warn and bad thresholds. */
 export const gaugeSvg = (w: number, pct: number): string => {
   const h = 8
-  const fill = HEX[level(pct, 60, 80)]
+  const fill = HEX[level(pct)]
   const fw = (Math.max(0, Math.min(100, pct)) * w) / 100
-  const ticks = [60, 80].map(t => `<rect x="${((t * w) / 100).toFixed(1)}" width="1" height="${h}" fill="${HEX.rule}"/>`)
+  const ticks = [levels.warnAt, levels.alertAt].map(t => `<rect x="${((t * w) / 100).toFixed(1)}" width="1" height="${h}" fill="${HEX.rule}"/>`)
   return svg(
     w,
     h,
@@ -153,7 +153,8 @@ export const toolsSvg = (w: number, tools: [string, ToolStat][]): string => {
     const shown = toolLabel(name)
     const short = shown.length > 18 ? `${shown.slice(0, 17)}…` : shown
     const spread = s.samples?.length ? `, p50 ${fmtMs(percentile(s.samples, 0.5))}, p95 ${fmtMs(percentile(s.samples, 0.95))}` : ''
-    const title = `${name}: ${s.count} calls, ${s.errors} errors, ${fmtMs(s.ms)} total, ${fmtMs(s.ms / s.count)} average${spread}`
+    const refused = (s.refused ? `, ${s.refused} refused` : '') + (s.waited ? `, ${s.waited} with approval ${fmtMs(s.waitMs ?? 0)}` : '')
+    const title = `${name}: ${s.count} calls, ${s.errors} errors${refused}, ${fmtMs(s.ms)} total, ${fmtMs(s.ms / Math.max(1, s.count - (s.waited ?? 0)))} average${spread}`
     return (
       `<g><title>${esc(title)}</title><rect y="${y}" width="${w}" height="${rowH}" fill="transparent"/>` +
       `<text x="0" y="${y + 14}" fill="${HEX.muted}" font-size="11" ${FONT}>${esc(short)}</text>` +
@@ -163,7 +164,7 @@ export const toolsSvg = (w: number, tools: [string, ToolStat][]): string => {
         ? `<rect x="${(labelW + bw - errW).toFixed(1)}" y="${y + 6}" width="${Math.max(errW, 3).toFixed(1)}" height="8" rx="4" fill="${HEX.bad}"/>`
         : '') +
       `<text x="${w}" y="${y + 14}" text-anchor="end" fill="${HEX.muted}" font-size="11" font-variant-numeric="tabular-nums" ${FONT}>` +
-      `${s.count}× ${esc(fmtMs(s.ms))}</text></g>`
+      `${s.count}× ${s.waited === s.count ? 'approval' : esc(fmtMs(s.ms))}</text></g>`
     )
   })
   return svg(w, Math.max(rowH, tools.length * rowH), rows.join(''))

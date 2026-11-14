@@ -4,6 +4,7 @@ import type { Register } from 'claude-code'
 import { addStep } from './derive'
 import { quietly } from './quietly'
 import { EMPTY, SHAPE, live } from './state'
+import { noteTaskNotice } from './tools'
 
 // The state scan reads an atom only where its file declares it, so each file that reads or writes Metrics declares the same one.
 const metrics = atom({ plugin: 'pulse', key: 'metrics' } as const, EMPTY, { shape: SHAPE })
@@ -12,6 +13,7 @@ type On = Parameters<Register>[0]
 
 const MAX_COMPACTIONS = 20
 const MAX_AGENT_IDS = 200
+const PERSON = new Set(['composer', 'bridge', 'sdk'])
 
 /** Hooks that only watch: subagent starts, compactions, prompts, and each model request. Each passes its event on unchanged. */
 export function observe(on: On): void {
@@ -53,7 +55,10 @@ export function observe(on: On): void {
 
   on('prompt.submit', async ($, e, next) => {
     const r = await next(e)
-    if (e.isMeta) return r
+    // A notification delivered into a running turn starts no turn, so its task ends here.
+    if (e.origin?.kind === 'task-notification') await quietly(() => noteTaskNotice($, e.text))
+    // Only the person's own prompts count: not a notification, a schedule, or another session's message.
+    if (e.isMeta || !PERSON.has(e.origin?.kind ?? 'composer')) return r
     const name = e.command?.name
     await quietly(() =>
       update($, metrics, m => ({

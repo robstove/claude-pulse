@@ -40,7 +40,7 @@ export const limitsSection = (ui: Ui, paces: readonly Pace[]): RenderElement | n
       {risk.label} full in ~{fmtMs(risk.fullInMs ?? 0)}
     </Text>
   ) : (
-    <Text size="caption" tabular color={level(top, 60, 80) === 'ok' ? undefined : THEME[level(top, 60, 80)]} dimColor={level(top, 60, 80) === 'ok'}>
+    <Text size="caption" tabular color={level(top) === 'ok' ? undefined : THEME[level(top)]} dimColor={level(top) === 'ok'}>
       {top}% at most
     </Text>
   )
@@ -52,7 +52,7 @@ export const limitsSection = (ui: Ui, paces: readonly Pace[]): RenderElement | n
         {paces.map(p => (
           <Text>
             <Text dimColor>{p.label.padEnd(8)}</Text>
-            {ui.termBar(p.pct / 100, THEME[level(p.pct, 60, 80)])}
+            {ui.termBar(p.pct / 100, THEME[level(p.pct)])}
           </Text>
         ))}
       </ui.Box>
@@ -126,6 +126,15 @@ export const endsLine = (ui: Ui, m: Metrics): RenderElement | null => {
   return bits.length > 0 ? caption(ui, bits.join(' · '), 'error') : null
 }
 
+/** Background tasks: how many still run, and those that ended with their time and failures. Empty when there are none. */
+export const backgroundText = (m: Metrics): string => {
+  const running = Object.keys(m.tasks ?? {}).length
+  const done = m.background
+  const bits = [running > 0 ? `${running} in background` : '', done && done.count > 0 ? `${done.count} background done in ${fmtMs(done.ms)}` : '']
+  if (done && done.failed > 0) bits.push(`${done.failed} failed`)
+  return bits.filter(Boolean).join(', ')
+}
+
 export const slowestLines = (ui: Ui, m: Metrics): RenderElement | null => {
   const slow = (m.slowest ?? []).slice(0, 3)
   if (slow.length === 0) return null
@@ -144,6 +153,7 @@ export const slowestLines = (ui: Ui, m: Metrics): RenderElement | null => {
           </Box>
           <Text size="caption" dimColor>
             {toolLabel(c.tool)}
+            {c.background ? ' (background)' : ''}
             {c.label ? ` · ${c.label.length > 48 ? `${c.label.slice(0, 47)}…` : c.label}` : ''}
           </Text>
         </Box>

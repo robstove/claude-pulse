@@ -1,8 +1,22 @@
 {
   "name": "pulse",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Live session metrics for Claude Code: cost, rate limits, context, turns, tokens, tools, subagents, files, and daily history in a pane and the prompt hint",
   "types": "./types/index.d.ts",
+  "userConfig": {
+    "warnAt": {
+      "type": "number",
+      "title": "Amber at",
+      "default": 60,
+      "description": "The fill, in percent, at which the context and rate-limit meters turn amber. Must be below Red at."
+    },
+    "alertAt": {
+      "type": "number",
+      "title": "Red at",
+      "default": 80,
+      "description": "The fill, in percent, at which the context and rate-limit meters turn red. Must be above Amber at and at most 100."
+    }
+  },
   "author": {
     "name": "robstove"
   }

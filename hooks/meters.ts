@@ -24,7 +24,7 @@ export const limitsSvg = (w: number, paces: readonly Pace[]): string => {
   const barW = w - labelW - statW - 8
   const rows = paces.map((p, i) => {
     const y = i * rowH
-    const fill = HEX[level(p.pct, 60, 80)]
+    const fill = HEX[level(p.pct)]
     const fw = (Math.min(100, p.pct) / 100) * barW
     const ahead = p.atResetPct !== null ? (Math.min(100, p.atResetPct) / 100) * barW : fw
     const reach = p.atResetPct !== null && p.atResetPct >= 100 ? HEX.bad : fill
@@ -56,7 +56,7 @@ export const contextSvg = (w: number, turns: readonly TurnRecord[], firstTurn: n
       ? ''
       : `<g><title>${esc(`Turn ${firstTurn + i}: context ${t.contextPct}%`)}</title>` +
         `<circle cx="${cx(i).toFixed(1)}" cy="${y(t.contextPct).toFixed(1)}" r="5" fill="transparent"/>` +
-        `<circle cx="${cx(i).toFixed(1)}" cy="${y(t.contextPct).toFixed(1)}" r="1.8" fill="${HEX[level(t.contextPct, 60, 80)]}"/></g>`,
+        `<circle cx="${cx(i).toFixed(1)}" cy="${y(t.contextPct).toFixed(1)}" r="1.8" fill="${HEX[level(t.contextPct)]}"/></g>`,
   )
   // A compaction after turn N draws between turn N and turn N + 1.
   const marks = compactions

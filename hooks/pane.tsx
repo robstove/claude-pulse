@@ -21,7 +21,7 @@ import {
 import type { LiveTurn } from './charts'
 import { paceOf } from './derive'
 import { contextSvg } from './meters'
-import { activitySection, agentsSection, endsLine, filesSection, historySection, limitsSection, requestsLine, slowestLines } from './sections'
+import { activitySection, agentsSection, backgroundText, endsLine, filesSection, historySection, limitsSection, requestsLine, slowestLines } from './sections'
 import type { Ui } from './sections'
 
 export type Kit = {
@@ -52,9 +52,12 @@ export const drawPane = ({ Box, Text, Svg }: Kit, { m, usage, now, daily, elapse
   const px = Math.max(220, Math.min(720, Math.floor(columns * PX_PER_CELL) - 4))
   const cells = Math.max(16, columns - 2)
   const ctxPct = usage.context.percent ?? 0
-  const ctxLevel = level(ctxPct, 60, 80)
+  const ctxLevel = level(ctxPct)
   const avgMs = m.mainTurns > 0 ? m.turnMsTotal / m.mainTurns : 0
-  const tools = Object.entries(m.byTool).sort((a, b) => b[1].ms - a[1].ms)
+  // A tool whose every call was refused ran no call, so it gets no row; the Tools line counts its refusals.
+  const tools = Object.entries(m.byTool)
+    .filter(([, s]) => s.count > 0)
+    .sort((a, b) => b[1].ms - a[1].ms)
   const tokenParts = [
     { value: m.cacheReadTokens, color: HEX.cacheRead, label: 'Cache read' },
     { value: m.cacheWriteTokens, color: HEX.cacheWrite, label: 'Cache write' },
@@ -202,9 +205,17 @@ export const drawPane = ({ Box, Text, Svg }: Kit, { m, usage, now, daily, elapse
         'Tools',
         <Text size="caption" tabular>
           <Text dimColor>
-            {m.toolCalls} calls · {fmtMs(m.toolMsTotal)}
+            {m.toolCalls + (m.toolRefusals ?? 0)} calls · {fmtMs(m.toolMsTotal)}
           </Text>
           {m.toolErrors > 0 && <Text color="error"> · {m.toolErrors} failed</Text>}
+          {(m.toolRefusals ?? 0) > 0 && <Text color="warning"> · {m.toolRefusals} refused</Text>}
+          {(m.toolWaited ?? 0) > 0 && (
+            <Text dimColor>
+              {' '}
+              · {m.toolWaited} with approval {fmtMs(m.toolWaitMs ?? 0)}
+            </Text>
+          )}
+          {backgroundText(m) !== '' && <Text dimColor> · {backgroundText(m)}</Text>}
         </Text>,
         tools.length === 0 ? (
           <Text size="caption" dimColor>
@@ -219,7 +230,7 @@ export const drawPane = ({ Box, Text, Svg }: Kit, { m, usage, now, daily, elapse
                 <Text dimColor>{toolLabel(name).slice(0, 13).padEnd(14)}</Text>
                 <Text color={s.errors > 0 ? 'error' : 'suggestion'}>{blockBar(s.ms / (tools[0]?.[1].ms || 1), 12)[0].padEnd(13)}</Text>
                 <Text>
-                  {s.count}× {fmtMs(s.ms)}
+                  {s.count}× {s.waited === s.count ? 'approval' : fmtMs(s.ms)}
                 </Text>
               </Text>
             )),

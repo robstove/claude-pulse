@@ -1,6 +1,11 @@
 export type ToolStat = {
   count: number
   errors: number
+  /** Calls a permission rule, a person, or a hook refused before they ran; they add no time. */
+  refused?: number
+  /** Calls a decider held: their whole span, decision and run, is in waitMs; ms and samples leave them out. */
+  waited?: number
+  waitMs?: number
   ms: number
   /** The last durations of this tool, newest last, for the p50 and p95; optional so 0.1.2 saves load. */
   samples?: number[]
@@ -53,7 +58,14 @@ export type Compaction = {
   tokensAfter?: number
 }
 
-export type SlowCall = { tool: string; ms: number; label: string }
+/** A slow call; `background` marks a task that ran on after its call answered, timed to its end. */
+export type SlowCall = { tool: string; ms: number; label: string; background?: true }
+
+/** A background task still going: a command sent to the background, a background subagent, a workflow, a monitor. */
+export type OpenTask = { tool: string; label: string; startedAt: number }
+
+/** Background tasks that ended, timed from their call to their notification. */
+export type BackgroundStat = { count: number; failed: number; ms: number }
 
 /** Model requests across all loops. */
 export type StepStats = {
@@ -85,6 +97,7 @@ export type Metrics = {
   longestTurnMs: number
   toolCalls: number
   toolErrors: number
+  /** Time of the calls that no decider held, so a permission prompt's wait is not in it. */
   toolMsTotal: number
   byTool: Record<string, ToolStat>
   /** Optional, so values stored before 0.1.1 still load under the same shape tag. */
@@ -114,6 +127,13 @@ export type Metrics = {
   /** Edits per file path by Edit, Write, MultiEdit, and NotebookEdit. */
   files?: Record<string, number>
   rateStart?: Record<string, RateStart>
+  // The fields below came in 0.3.0.
+  toolRefusals?: number
+  toolWaited?: number
+  toolWaitMs?: number
+  /** Background tasks by task id. */
+  tasks?: Record<string, OpenTask>
+  background?: BackgroundStat
 }
 
 declare module 'claude-code' {
