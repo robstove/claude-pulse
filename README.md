@@ -37,8 +37,6 @@ claude plugin install pulse --marketplace robstove/claude-pulse
 
 In the desktop app, where `/plugin` does not run: click + next to the prompt box, then Plugins, Add marketplace with `robstove/claude-pulse`, then Add plugin.
 
-This repository is private. It installs only for people who can read it on GitHub and whose machine already holds a git credential for github.com (an SSH key, or `gh auth login` then `gh auth setup-git`).
-
 ## Use
 
 The pane opens when a session starts. If you close it, `/pulse` opens it again.
@@ -73,3 +71,7 @@ node scripts/check-surface.mjs
 `scripts/check-surface.mjs` lists each event Pulse hooks and each engine call it makes. It fails when the list differs from `scripts/surface.txt`, so a new hook or call shows in the pull request. A call that reaches outside the session (`$.fs`, `$.process`, `$.model`, `fetch`) fails it whatever the file says. Run it with `--write` after an intended change. CI runs all three checks on Claude Code 2.1.325.
 
 Pulse hooks `tool.call` for every tool. Claude Code then turns off the move of a running call to the background for those tools, as it does for any plugin that hooks them.
+
+## License
+
+[MIT](LICENSE)
