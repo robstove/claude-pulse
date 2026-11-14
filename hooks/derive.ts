@@ -65,18 +65,42 @@ export const paceOf = (l: SessionRateLimit, start: RateStart | undefined, now: n
   }
 }
 
-/** What a call worked on, for the slowest-call list: a command, a path, or a pattern. */
-export const callLabel = (input: Readonly<Record<string, unknown>>): string => {
-  for (const key of ['command', 'file_path', 'notebook_path', 'pattern', 'url', 'query', 'description', 'prompt']) {
-    const v = input[key]
-    if (typeof v === 'string' && v.trim() !== '') {
-      // A leading `cd <dir> &&` names only where the command ran, and it would fill the label before the command shows.
-      const first = v.trim().split('\n')[0] ?? ''
-      const one = first.replace(/^(cd\s+("[^"]*"|'[^']*'|\S+)\s*(&&|;)\s*)+/, '') || first
-      return one.length > 80 ? `${one.slice(0, 79)}…` : one
-    }
+const cut = (s: string): string => (s.length > 80 ? `${s.slice(0, 79)}…` : s)
+
+/** The program a command line runs: no `cd` prefix, no `NAME=value` assignment, no arguments, no folder. */
+const commandName =(command: string): string => {
+  // A leading `cd <dir> &&` names only where the command ran.
+  const line = (command.trim().split('\n')[0] ?? '').replace(/^(cd\s+("[^"]*"|'[^']*'|\S+)\s*(&&|;)\s*)+/, '')
+  const words = line.match(/"[^"]*"|'[^']*'|\S+/g) ?? []
+  // An assignment before the program can carry a token, so it never reaches the label.
+  const program = words.find(w => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) ?? ''
+  return program.replace(/^["']|["']$/g, '').split(/[\\/]/).pop() ?? ''
+}
+
+/** The host of an address, without login, path, or query; empty when the text is not an address. */
+const hostOf = (url: string): string => {
+  try {
+    return new URL(url).hostname
+  } catch {
+    return ''
   }
-  return ''
+}
+
+// The slowest-call label holds a name, never content: the model's description, a command's program, a path's last two parts, or a host.
+// A pattern, query, or prompt gives no label, because each one is content.
+export const callLabel = (input: Readonly<Record<string, unknown>>): string => {
+  const text = (key: string): string => {
+    const v = input[key]
+    return typeof v === 'string' ? v.trim() : ''
+  }
+  const description = text('description')
+  if (description !== '') return cut(description.split('\n')[0] ?? '')
+  const command = text('command')
+  if (command !== '') return cut(commandName(command))
+  const path = text('file_path') || text('notebook_path')
+  if (path !== '') return cut(path.split(/[\\/]/).filter(Boolean).slice(-2).join('/'))
+  const url = text('url')
+  return url !== '' ? hostOf(url) : ''
 }
 
 /** The five slowest calls, slowest first. */

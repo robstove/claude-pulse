@@ -5,7 +5,8 @@ import type { AgentStat, ModelStat, TurnRecord } from '../types'
 import { FILE_TOOLS, IDLE_CAP_MS, SAMPLES, callLabel, dayKey, nextRateStart, pushSlow } from './derive'
 import { observe } from './observe'
 import { drawPane } from './pane'
-import { addDailyCost, loadDaily, loadSession, saveSession } from './persist'
+import { addDailyCost, dropOtherShapes, loadDaily, loadSession, saveSession } from './persist'
+import { quietly } from './quietly'
 import { EMPTY, MAX_TURNS, SHAPE, hasData, live } from './state'
 import { statusText } from './status'
 
@@ -63,47 +64,45 @@ async function adoptSession($: EngineInterface): Promise<void> {
   await update($, metrics, () => ({ ...(saved ?? EMPTY), lastCostUsd: cost, sessionId: id }))
 }
 
+const redraw = ($: EngineInterface): void => void quietly(() => $.ui.invalidate('ui.render'))
+
+// Every engine call goes through quietly: a hook passes its event on and returns what came back, whatever Pulse fails at.
 export const register: Register = on => {
   observe(on)
 
   on('session.start', async ($, e, next) => {
-    await $.command.register({
-      name: 'pulse',
-      description: 'Show token, timing, and tool metrics for this session',
-    })
-    void $.ui.open({ id: PANE, title: TITLE })
-    try {
-      await adoptSession($)
-    } catch {
-      // The pane starts from what $.state holds; the next turn's save tries the store again.
-    }
+    await quietly(() => $.command.register({ name: 'pulse', description: 'Show token, timing, and tool metrics for this session' }))
+    void quietly(() => $.ui.open({ id: PANE, title: TITLE }))
+    // The pane starts from what $.state holds when a load fails; the next turn's save tries the store again.
+    await quietly(() => dropOtherShapes($))
+    await quietly(() => adoptSession($))
 
     return next(e)
   })
 
   on('command.run', { command: 'pulse' }, async $ => {
-    await $.ui.open({ id: PANE, title: TITLE })
+    await quietly(() => $.ui.open({ id: PANE, title: TITLE }))
 
     return { text: 'Pulse pane opened.' }
   })
 
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) {
-      const now = await $.clock.now()
       live.toolCalls = 0
       live.steps = 0
-      live.startedAt = now
+      live.startedAt = null
       live.ticker?.cancel()
-      // One redraw a second keeps the elapsed time, cost, and running bar current while the model streams.
-      live.ticker = $.clock.every(1000, () => $.ui.invalidate('ui.render'))
-      try {
+      live.ticker = undefined
+      await quietly(async () => {
+        const now = await $.clock.now()
+        live.startedAt = now
+        // One redraw a second keeps the elapsed time, cost, and running bar current while the model streams.
+        live.ticker = $.clock.every(1000, () => redraw($))
         await update($, metrics, m =>
           m.lastEndedAt === undefined ? m : { ...m, idleMs: (m.idleMs ?? 0) + Math.min(IDLE_CAP_MS, Math.max(0, now - m.lastEndedAt)) },
         )
-      } catch {
-        // Metrics are best effort.
-      }
-      $.ui.invalidate('ui.render')
+      })
+      redraw($)
     }
     return next(e)
   })
@@ -111,72 +110,60 @@ export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     const isMain = e.agentId === undefined
     const steps = live.steps
+    const tools = live.toolCalls
     if (isMain) {
       live.ticker?.cancel()
       live.ticker = undefined
       live.startedAt = null
     }
-    const u = e.usage
-    let costNow: number | null = null
-    let contextPct: number | null = null
-    let limits: Awaited<ReturnType<EngineInterface['session']['usage']>>['rateLimits'] = []
-    const now = await $.clock.now()
-    if (isMain) {
-      try {
-        const s = await $.session.usage()
-        costNow = s.cost?.usd ?? null
-        contextPct = s.context.percent ?? null
-        limits = s.rateLimits
-      } catch {
-        // The per-turn cost and context points stay empty for this turn.
-      }
-    }
-    const tools = live.toolCalls
-    const before = (await read($, metrics)).lastCostUsd
-    const turnCost = isMain && costNow !== null && before !== null ? Math.max(0, costNow - before) : null
-    await update($, metrics, m => {
-      const record: TurnRecord = {
-        ms: e.durationMs,
-        inputTokens: (u?.input_tokens ?? 0) + (u?.cache_read_input_tokens ?? 0) + (u?.cache_creation_input_tokens ?? 0),
-        outputTokens: u?.output_tokens ?? 0,
-        costUsd: turnCost,
-        contextPct,
-        toolCalls: tools,
-        isAborted: e.isAborted,
-        steps,
-        reason: e.reason,
-      }
-      const agentType = isMain ? null : (m.agentTypes?.[e.agentId ?? ''] ?? 'subagent')
-      return {
-        ...m,
-        mainTurns: m.mainTurns + (isMain ? 1 : 0),
-        agentTurns: m.agentTurns + (isMain ? 0 : 1),
-        abortedTurns: m.abortedTurns + (e.isAborted ? 1 : 0),
-        inputTokens: m.inputTokens + (u?.input_tokens ?? 0),
-        outputTokens: m.outputTokens + (u?.output_tokens ?? 0),
-        cacheReadTokens: m.cacheReadTokens + (u?.cache_read_input_tokens ?? 0),
-        cacheWriteTokens: m.cacheWriteTokens + (u?.cache_creation_input_tokens ?? 0),
-        // Timing covers main-loop turns only, because a subagent turn runs inside one.
-        turnMsTotal: m.turnMsTotal + (isMain ? e.durationMs : 0),
-        lastTurnMs: isMain ? e.durationMs : m.lastTurnMs,
-        longestTurnMs: isMain ? Math.max(m.longestTurnMs, e.durationMs) : m.longestTurnMs,
-        models: u ? addModelTurn(m.models ?? {}, u, isMain ? e.durationMs : null) : m.models,
-        turns: isMain ? [...m.turns, record].slice(-MAX_TURNS) : m.turns,
-        lastCostUsd: isMain && costNow !== null ? costNow : m.lastCostUsd,
-        endReasons: isMain ? { ...m.endReasons, [e.reason]: (m.endReasons?.[e.reason] ?? 0) + 1 } : m.endReasons,
-        agents: agentType !== null ? addAgentTurn(m.agents ?? {}, agentType, e.durationMs, u) : m.agents,
-        workMs: (m.workMs ?? 0) + (isMain ? e.durationMs : 0),
-        lastEndedAt: isMain ? now : m.lastEndedAt,
-        rateStart: isMain ? nextRateStart(m.rateStart, limits, now) : m.rateStart,
-      }
-    })
-    try {
-      const m = await read($, metrics)
-      if (m.sessionId !== undefined) await saveSession($, m.sessionId, m)
-      if (turnCost !== null && turnCost > 0) await addDailyCost($, dayKey(now), turnCost)
-    } catch {
+    await quietly(async () => {
+      const u = e.usage
+      const now = await $.clock.now()
+      const s = isMain ? await quietly(() => $.session.usage()) : undefined
+      const costNow = s?.cost?.usd ?? null
+      const before = (await read($, metrics)).lastCostUsd
+      const turnCost = isMain && costNow !== null && before !== null ? Math.max(0, costNow - before) : null
+      await update($, metrics, m => {
+        const record: TurnRecord = {
+          ms: e.durationMs,
+          inputTokens: (u?.input_tokens ?? 0) + (u?.cache_read_input_tokens ?? 0) + (u?.cache_creation_input_tokens ?? 0),
+          outputTokens: u?.output_tokens ?? 0,
+          costUsd: turnCost,
+          contextPct: s?.context.percent ?? null,
+          toolCalls: tools,
+          isAborted: e.isAborted,
+          steps,
+          reason: e.reason,
+        }
+        const agentType = isMain ? null : (m.agentTypes?.[e.agentId ?? ''] ?? 'subagent')
+        return {
+          ...m,
+          mainTurns: m.mainTurns + (isMain ? 1 : 0),
+          agentTurns: m.agentTurns + (isMain ? 0 : 1),
+          abortedTurns: m.abortedTurns + (e.isAborted ? 1 : 0),
+          inputTokens: m.inputTokens + (u?.input_tokens ?? 0),
+          outputTokens: m.outputTokens + (u?.output_tokens ?? 0),
+          cacheReadTokens: m.cacheReadTokens + (u?.cache_read_input_tokens ?? 0),
+          cacheWriteTokens: m.cacheWriteTokens + (u?.cache_creation_input_tokens ?? 0),
+          // Timing covers main-loop turns only, because a subagent turn runs inside one.
+          turnMsTotal: m.turnMsTotal + (isMain ? e.durationMs : 0),
+          lastTurnMs: isMain ? e.durationMs : m.lastTurnMs,
+          longestTurnMs: isMain ? Math.max(m.longestTurnMs, e.durationMs) : m.longestTurnMs,
+          models: u ? addModelTurn(m.models ?? {}, u, isMain ? e.durationMs : null) : m.models,
+          turns: isMain ? [...m.turns, record].slice(-MAX_TURNS) : m.turns,
+          lastCostUsd: isMain && costNow !== null ? costNow : m.lastCostUsd,
+          endReasons: isMain ? { ...m.endReasons, [e.reason]: (m.endReasons?.[e.reason] ?? 0) + 1 } : m.endReasons,
+          agents: agentType !== null ? addAgentTurn(m.agents ?? {}, agentType, e.durationMs, u) : m.agents,
+          workMs: (m.workMs ?? 0) + (isMain ? e.durationMs : 0),
+          lastEndedAt: isMain ? now : m.lastEndedAt,
+          rateStart: isMain ? nextRateStart(m.rateStart, s?.rateLimits ?? [], now) : m.rateStart,
+        }
+      })
       // A failed save leaves the previous one in the store; the next turn saves again.
-    }
+      const saved = await read($, metrics)
+      if (saved.sessionId !== undefined) await saveSession($, saved.sessionId, saved)
+      if (turnCost !== null && turnCost > 0) await addDailyCost($, dayKey(now), turnCost)
+    })
 
     return next(e)
   })
@@ -186,20 +173,15 @@ export const register: Register = on => {
     const caller = next.origin.plugin
     if (caller !== 'engine') {
       const ran = await next(e)
-      try {
-        await update($, metrics, m => ({ ...m, pluginCalls: { ...m.pluginCalls, [caller]: (m.pluginCalls[caller] ?? 0) + 1 } }))
-      } catch {
-        // Metrics are best effort.
-      }
+      await quietly(() => update($, metrics, m => ({ ...m, pluginCalls: { ...m.pluginCalls, [caller]: (m.pluginCalls[caller] ?? 0) + 1 } })))
       return ran
     }
-    const started = await $.clock.now()
+    const started = await quietly(() => $.clock.now())
     const ran = await next(e)
-    const ms = (await $.clock.now()) - started
-    const failed = ran.deny !== undefined || ran.isError === true
     live.toolCalls += 1
-    // A failed metrics write must not lose the tool's result.
-    try {
+    await quietly(async () => {
+      const ms = started === undefined ? 0 : (await $.clock.now()) - started
+      const failed = ran.deny !== undefined || ran.isError === true
       const input = e as unknown as Readonly<Record<string, unknown>>
       const label = callLabel(input)
       const path = input.file_path ?? input.notebook_path
@@ -225,16 +207,15 @@ export const register: Register = on => {
           files: files && Object.keys(files).length > MAX_FILES ? m.files : files,
         }
       })
-    } catch {
-      // Metrics are best effort.
-    }
+    })
 
     return ran
   })
 
   // The summary rides on the hint line under the prompt, because $.ui.status labels it with the plugin name.
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
-    const line = statusText(await read($, metrics), await $.session.usage())
+    const line = await quietly(async () => statusText(await read($, metrics), await $.session.usage()))
+    if (line === undefined) return next(e)
     if (e.surface === 'terminal') return next({ ...e, props: { ...e.props, tail: `  ${line}` } })
     const { Box, Text } = $.ui.resolve(e)
 
@@ -251,27 +232,33 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const table = $.ui.resolve(e)
     const Svg = e.surface !== 'terminal' && 'Svg' in table ? table.Svg : undefined
-    const usage = await $.session.usage()
-    const now = await $.clock.now()
-    let daily: Record<string, number> = {}
-    try {
-      daily = await loadDaily($)
-    } catch {
-      // The History section draws empty.
-    }
+    const pane = await quietly(async () => {
+      const usage = await $.session.usage()
+      const now = await $.clock.now()
+      // The History section draws empty when the daily totals do not load.
+      const daily = (await quietly(() => loadDaily($))) ?? {}
 
-    return drawPane(
-      { Box: table.Box, Text: table.Text, Svg },
-      {
-        m: await read($, metrics),
-        usage,
-        now,
-        daily,
-        elapsedMs: now - usage.startedAt,
-        live: live.startedAt !== null ? { ms: now - live.startedAt, toolCalls: live.toolCalls } : null,
-        columns: e.props.bodyColumns ?? 40,
-        rows: e.viewport?.rows ?? 40,
-      },
+      return drawPane(
+        { Box: table.Box, Text: table.Text, Svg },
+        {
+          m: await read($, metrics),
+          usage,
+          now,
+          daily,
+          elapsedMs: now - usage.startedAt,
+          live: live.startedAt !== null ? { ms: now - live.startedAt, toolCalls: live.toolCalls } : null,
+          columns: e.props.bodyColumns ?? 40,
+          rows: e.viewport?.rows ?? 40,
+        },
+      )
+    })
+    if (pane !== undefined) return pane
+    const { Box, Text } = table
+
+    return (
+      <Box>
+        <Text dimColor>Pulse metrics are not available now.</Text>
+      </Box>
     )
   })
 }

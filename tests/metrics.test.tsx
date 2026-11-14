@@ -109,7 +109,7 @@ test('subagents, compactions, prompts, requests, slow calls, and files show in t
     expect(await ui.find({ type: 'Text', text: /^1\.0 requests a turn · first token 400ms · 250 tok\/s · web_search 1×/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'src/a.ts' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'Slowest calls' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: 'Bash · npm test' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'Bash · npm' })).toBeDefined()
     await ui.unmount()
   }
 })

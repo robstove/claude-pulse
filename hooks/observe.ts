@@ -2,6 +2,7 @@ import { atom, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
 import { addStep } from './derive'
+import { quietly } from './quietly'
 import { EMPTY, SHAPE, live } from './state'
 
 // The state scan reads an atom only where its file declares it, so each file that reads or writes Metrics declares the same one.
@@ -17,8 +18,8 @@ export function observe(on: On): void {
   on('agent.spawn', async ($, e, next) => {
     const r = await next(e)
     if (r.deny !== undefined) return r
-    try {
-      await update($, metrics, m => {
+    await quietly(() =>
+      update($, metrics, m => {
         const prev = m.agents?.[e.subagentType] ?? { spawns: 0, turns: 0, ms: 0, inputTokens: 0, outputTokens: 0 }
         const ids = r.agentId
           ? Object.fromEntries(Object.entries({ ...m.agentTypes, [r.agentId]: e.subagentType }).slice(-MAX_AGENT_IDS))
@@ -28,10 +29,8 @@ export function observe(on: On): void {
           agents: { ...m.agents, [e.subagentType]: { ...prev, spawns: prev.spawns + 1, model: r.model } },
           agentTypes: ids,
         }
-      })
-    } catch {
-      // Metrics are best effort.
-    }
+      }),
+    )
     return r
   })
 
@@ -39,7 +38,7 @@ export function observe(on: On): void {
     const r = await next(e)
     // A precompute only prepares a summary; the conversation changes on the compaction that uses it.
     if (e.trigger === 'precompute' || r.skip !== undefined) return r
-    try {
+    await quietly(async () => {
       const at = await $.clock.now()
       await update($, metrics, m => ({
         ...m,
@@ -48,45 +47,47 @@ export function observe(on: On): void {
           { at, trigger: e.trigger, turn: m.mainTurns, tokensBefore: r.tokensBefore, tokensAfter: r.tokensAfter },
         ].slice(-MAX_COMPACTIONS),
       }))
-    } catch {
-      // Metrics are best effort.
-    }
+    })
     return r
   })
 
   on('prompt.submit', async ($, e, next) => {
     const r = await next(e)
     if (e.isMeta) return r
-    try {
-      const name = e.command?.name
-      await update($, metrics, m => ({
+    const name = e.command?.name
+    await quietly(() =>
+      update($, metrics, m => ({
         ...m,
         prompts: (m.prompts ?? 0) + 1,
         commands: name ? { ...m.commands, [name]: (m.commands?.[name] ?? 0) + 1 } : m.commands,
-      }))
-    } catch {
-      // Metrics are best effort.
-    }
+      })),
+    )
     return r
   })
 
   on('turn.step', async function* ($, e, next) {
-    const started = await $.clock.now()
+    const started = await quietly(() => $.clock.now())
     let first: number | null = null
+    // After one failed clock read the step stops its timing, so a broken clock costs one try, not one per chunk.
+    let timing = started !== undefined
     const stream = next(e)
     for await (const chunk of stream) {
       // Engine chunks are the envelope and block markers; the first text, thinking, or tool chunk is the first token.
-      if (first === null && chunk.kind !== 'engine') first = await $.clock.now()
+      if (timing && first === null && chunk.kind !== 'engine') {
+        const at = await quietly(() => $.clock.now())
+        if (at === undefined) timing = false
+        else first = at
+      }
       yield chunk
     }
     const r = await stream.result
-    try {
+    if (e.agentId === undefined) live.steps += 1
+    await quietly(async () => {
       const ended = await $.clock.now()
-      if (e.agentId === undefined) live.steps += 1
       await update($, metrics, m => ({
         ...m,
         steps: addStep(m.steps, {
-          firstMs: first === null ? null : first - started,
+          firstMs: first === null || started === undefined ? null : first - started,
           streamMs: first === null ? 0 : ended - first,
           output: r.usage?.output_tokens ?? 0,
           serverTools: (r.serverToolUses ?? []).map(u => u.name),
@@ -94,9 +95,7 @@ export function observe(on: On): void {
           effort: e.effort === undefined ? undefined : String(e.effort),
         }),
       }))
-    } catch {
-      // Metrics are best effort.
-    }
+    })
     return r
   })
 }

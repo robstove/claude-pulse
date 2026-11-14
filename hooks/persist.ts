@@ -48,6 +48,22 @@ export async function addDailyCost($: EngineInterface, day: string, usd: number)
   await $.store.set(DAILY, Object.fromEntries(keep.map(k => [k, next[k] ?? 0])))
 }
 
+// The store key that records which layout the saves hold, so the purge below runs once per layout change.
+const SHAPE_KEY = 'shape'
+
+/** Deletes each save of another layout, because an old layout can hold data that the current one no longer keeps. */
+export async function dropOtherShapes($: EngineInterface): Promise<void> {
+  if ((await $.store.get(SHAPE_KEY)) === SHAPE) return
+  const held = await $.store.get(INDEX)
+  const kept: IndexEntry[] = []
+  for (const x of isIndex(held) ? held : []) {
+    if (isSaved(await $.store.get(PREFIX + x.id))) kept.push(x)
+    else await $.store.delete(PREFIX + x.id)
+  }
+  await $.store.set(INDEX, kept)
+  await $.store.set(SHAPE_KEY, SHAPE)
+}
+
 /** Saves the session's metrics and drops the oldest sessions past KEEP_SESSIONS. */
 export async function saveSession($: EngineInterface, id: string, metrics: Metrics): Promise<void> {
   const savedAt = await $.clock.now()

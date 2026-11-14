@@ -24,7 +24,8 @@ export const EMPTY: Metrics = {
 }
 
 // Change this tag when a Metrics field changes meaning: stored values outlive a reload. New optional fields keep it.
-export const SHAPE = 'metrics-3'
+// metrics-4: a slow call's label holds a name only; metrics-3 saves held raw command lines and URLs.
+export const SHAPE = 'metrics-4'
 
 export const hasData = (m: Metrics): boolean => m.mainTurns > 0 || m.agentTurns > 0 || m.toolCalls > 0
 

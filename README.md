@@ -46,6 +46,10 @@ The cost is the engine's own ledger, the same total that `/cost` and the status 
 
 Pulse saves each session's metrics in its plugin store at the end of every turn, so a restart or `claude --resume` reopens the pane with the session's history. It keeps the 50 most recent sessions. `/clear` starts a new session, and the pane starts empty.
 
+A slow call's label holds a name, never content: the description Claude wrote for the call, the program a command runs, the last two parts of a file path, or the host of an address. Pulse never keeps a command line, a search pattern, a query, or a prompt. When a session starts, Pulse deletes the saves of earlier versions, because they kept raw command lines and addresses.
+
+A fault in Pulse never reaches a tool call, a turn, or the prompt hint. If its metrics fail to load, the pane shows a line that says so.
+
 ## Develop
 
 ```bash

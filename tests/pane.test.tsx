@@ -179,7 +179,7 @@ const world = (on: Parameters<Extract<Parameters<typeof test>[1], (...args: neve
 }
 
 const saved = (mainTurns: number) => ({
-  shape: 'metrics-3',
+  shape: 'metrics-4',
   savedAt: 1,
   metrics: {
     mainTurns, agentTurns: 0, abortedTurns: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
