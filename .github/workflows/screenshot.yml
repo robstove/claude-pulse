@@ -44,7 +44,7 @@ jobs:
       - name: Install Claude Code, Playwright, and the font
         run: |
           sudo apt-get update
-          sudo apt-get install --yes fonts-inter
+          sudo apt-get install --yes fonts-liberation
           npm install --global "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
           npm install --no-save --no-package-lock "playwright@${PLAYWRIGHT_VERSION}"
           npx playwright install --with-deps chromium

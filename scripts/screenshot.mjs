@@ -7,7 +7,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const root = join(import.meta.dirname, '..')
-const out = join(root, 'docs', 'screenshot.png')
+// PULSE_SHOT_OUT writes the picture elsewhere, to look at a change without touching the committed one.
+const out = process.env.PULSE_SHOT_OUT ?? join(root, 'docs', 'screenshot.png')
 const MARK = 'PULSE_SCREENSHOT '
 
 const GAP = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24 }
@@ -80,7 +81,9 @@ function html(node, inText = false) {
 
 const page = tree => `<!doctype html><meta charset="utf-8"><style>
   body { margin: 0; background: ${BACKGROUND}; }
-  #pane { width: 448px; background: ${BACKGROUND}; color: ${TEXT}; font: 14px/1.45 Inter, "Segoe UI", system-ui, -apple-system, sans-serif; }
+  #pane { width: 448px; background: ${BACKGROUND}; color: ${TEXT}; font: 14px/1.45 "Liberation Sans", Arial, sans-serif; }
+  /* Chart text names system-ui, which Linux maps to a wider font; the page's Arial-width font keeps labels off the bars. */
+  svg text { font-family: "Liberation Sans", Arial, sans-serif !important; }
   header { padding: 12px 16px; border-bottom: 1px solid #333; font-size: 14px; }
   main { padding: 16px; }
   svg { display: block; }
