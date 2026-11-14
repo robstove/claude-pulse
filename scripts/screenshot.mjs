@@ -2,7 +2,7 @@
 // The test kit gives the drawn element tree; this script lays it out as HTML in the desktop app's dark colors and
 // screenshots it with Playwright. Run: node scripts/screenshot.mjs (needs `claude` on PATH and the playwright package).
 import { spawnSync } from 'node:child_process'
-import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -10,6 +10,8 @@ const root = join(import.meta.dirname, '..')
 // PULSE_SHOT_OUT writes the picture elsewhere, to look at a change without touching the committed one.
 const out = process.env.PULSE_SHOT_OUT ?? join(root, 'docs', 'screenshot.png')
 const MARK = 'PULSE_SCREENSHOT '
+// The header shows the plugin version, not the commit: a commit id would change the picture on every push.
+const VERSION = JSON.parse(readFileSync(join(root, '.claude-plugin', 'plugin.json'), 'utf8')).version
 
 const GAP = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24 }
 const SIZE = { title: [22, 600], heading: [16, 600], body: [14, 400], footnote: [13, 400], caption: [12, 400] }
@@ -84,10 +86,11 @@ const page = tree => `<!doctype html><meta charset="utf-8"><style>
   #pane { width: 448px; background: ${BACKGROUND}; color: ${TEXT}; font: 14px/1.45 "Liberation Sans", Arial, sans-serif; }
   /* Chart text names system-ui, which Linux maps to a wider font; the page's Arial-width font keeps labels off the bars. */
   svg text { font-family: "Liberation Sans", Arial, sans-serif !important; }
-  header { padding: 12px 16px; border-bottom: 1px solid #333; font-size: 14px; }
+  header { display: flex; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid #333; font-size: 14px; }
+  header span { color: ${MUTED}; font-size: 12px; }
   main { padding: 16px; }
   svg { display: block; }
-</style><div id="pane"><header>Pulse</header><main>${html(tree)}</main></div>`
+</style><div id="pane"><header>Pulse<span>v${esc(VERSION)} · made-up session</span></header><main>${html(tree)}</main></div>`
 
 const { chromium } = await import('playwright')
 // PULSE_BROWSER names an installed browser (msedge, chrome) when Playwright's own Chromium is not downloaded.
