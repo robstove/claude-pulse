@@ -70,6 +70,8 @@ node scripts/check-surface.mjs
 
 `scripts/check-surface.mjs` lists each event Pulse hooks and each engine call it makes. It fails when the list differs from `scripts/surface.txt`, so a new hook or call shows in the pull request. A call that reaches outside the session (`$.fs`, `$.process`, `$.model`, `fetch`) fails it whatever the file says. Run it with `--write` after an intended change. CI runs all three checks on Claude Code 2.1.325.
 
+The screenshot at the top shows a made-up session, `scripts/screenshot/pane.shot.tsx`, drawn by `node scripts/screenshot.mjs`. The script lays out the pane's drawn tree as HTML and saves it with Playwright, so spacing and fonts are close to the app, not exact. After a push to `main` that changes `hooks/`, `types/`, or the script, CI draws it again and commits it when the picture changed. To draw it locally, install `playwright` with `npm install --no-save`; set `PULSE_BROWSER=msedge` or `chrome` to use an installed browser in place of Playwright's Chromium.
+
 Pulse hooks `tool.call` for every tool. Claude Code then turns off the move of a running call to the background for those tools, as it does for any plugin that hooks them.
 
 ## License
