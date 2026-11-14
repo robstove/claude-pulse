@@ -1,5 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
+import { ran } from './calls'
+
 const PANE = {
   plugin: 'pulse',
   component: 'Pane',
@@ -21,13 +23,15 @@ test('the pane shows tool counts and session figures, on every surface', async (
   on('session.usage', () => ({
     value: { startedAt: 0, context: { tokens: 12_000, window: 200_000, percent: 6 }, rateLimits: [], cost: { usd: 0.0123 } },
   }))
-  on('tool.call', () => ({ result: {} }))
+  on('classic.PostToolUse', () => ({}))
+  on('classic.PostToolUseFailure', () => ({}))
+  on('classic.PermissionDenied', () => ({}))
   let tick = 0
   on('clock.now', () => ({ value: (tick += 250) }))
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  await $.tool.call({ tool: 'Bash', command: 'ls' })
-  await $.tool.call({ tool: 'Bash', command: 'pwd' })
+  await ran($, 'Bash', { command: 'ls' }, { ms: 250 })
+  await ran($, 'Bash', { command: 'pwd' }, { ms: 250 })
 
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
@@ -54,7 +58,9 @@ test('the prompt hint carries the summary with no plugin label', async ($, on) =
   on('session.usage', () => ({
     value: { startedAt: 0, context: { tokens: 170_000, window: 200_000, percent: 85 }, rateLimits: [], cost: { usd: 1.5 } },
   }))
-  on('tool.call', () => ({ result: {} }))
+  on('classic.PostToolUse', () => ({}))
+  on('classic.PostToolUseFailure', () => ({}))
+  on('classic.PermissionDenied', () => ({}))
   let tick = 0
   on('clock.now', () => ({ value: (tick += 100) }))
   on('ui.render', { component: 'PromptHint' }, ($, e) => {
@@ -63,7 +69,7 @@ test('the prompt hint carries the summary with no plugin label', async ($, on) =
   })
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  await $.tool.call({ tool: 'Bash', command: 'ls' })
+  await ran($, 'Bash', { command: 'ls' })
 
   const HINT = { plugin: 'pulse', component: 'PromptHint', props: { isDraft: false, isWorking: false, hint: '? for shortcuts' } } as const
   const desktop = await $.ui.mount({ ...HINT, surface: 'desktop' })
@@ -184,7 +190,7 @@ const saved = (mainTurns: number) => ({
   metrics: {
     mainTurns, agentTurns: 0, abortedTurns: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
     turnMsTotal: mainTurns * 3_000, lastTurnMs: 3_000, longestTurnMs: 3_000, toolCalls: 0, toolErrors: 0, toolMsTotal: 0,
-    byTool: {}, models: {}, pluginCalls: {}, turns: [], lastCostUsd: 0.4,
+    byTool: {}, models: {}, turns: [], lastCostUsd: 0.4,
   },
 })
 

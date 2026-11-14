@@ -10,9 +10,10 @@ Live session metrics for Claude Code. Pulse tracks each session with hooks and s
 - **Turns**: time and cost per turn on one chart, with a live bar that grows once a second while a turn runs. Under it: model requests per turn, time to the first token, output tokens per second, effort, server tools such as web search, replies cut at the output limit, and turns that were interrupted or failed.
 - **Activity**: how the active time splits between Claude at work and you between turns, with your prompt and slash-command counts. Task notifications, schedules, and messages from other sessions are not your prompts and do not count.
 - **Tokens**: cache read, cache write, input, and output as one stacked bar.
-- **Tools**: total time per tool, with failed calls in red and the p50 and p95 time on hover, plus the three slowest calls. Calls that other plugins make through the tool chain are counted apart.
-  - A call that a permission rule, a hook, or you refused counts as refused, not as failed, and adds no time.
-  - A call that went to a permission decision, from you or from auto mode's classifier, keeps its time apart, as "with approval", because Claude Code does not report when the decision ends. Tool time, p50, p95, and the slowest calls leave these calls out. In auto mode most calls that write go to the classifier, so most of their time shows as "with approval".
+- **Tools**: total time per tool, with failed calls in red and the p50 and p95 time on hover, plus the three slowest calls.
+  - A tool's time is the run time that Claude Code reports, so the wait for a permission prompt or auto mode's classifier is not in it.
+  - A call that a permission rule, a hook, or auto mode's classifier refused counts as refused, not as failed, and adds no time. A call you stop counts, but not as failed.
+  - Two gaps. A call you reject at the permission prompt is not counted, because Claude Code reports no event for it. Calls that another plugin makes for its own work may count as Claude's calls, if Claude Code reports them to PostToolUse hooks.
   - A command sent to the background, a background subagent, a workflow, or a monitor with a timeout is timed until its notification says it ended. The Tools line shows how many still run.
 - **Files**: the files that Edit, Write, MultiEdit, and NotebookEdit changed, most edited first.
 - **Models**: turns, average time, and tokens for each model that answered, so a `/model` switch shows its own share.
@@ -72,7 +73,7 @@ node scripts/check-surface.mjs
 
 The screenshot at the top shows a made-up session, `scripts/screenshot/pane.shot.tsx`, drawn by `node scripts/screenshot.mjs`. The script lays out the pane's drawn tree as HTML and saves it with Playwright, so spacing and fonts are close to the app, not exact. After a push to `main` that changes `hooks/`, `types/`, or the script, CI draws it again and commits it when the picture changed. To draw it locally, install `playwright` with `npm install --no-save`; set `PULSE_BROWSER=msedge` or `chrome` to use an installed browser in place of Playwright's Chromium.
 
-Pulse hooks `tool.call` for every tool. Claude Code then turns off the move of a running call to the background for those tools, as it does for any plugin that hooks them.
+Pulse does not hook `tool.call`, because a plugin that wraps a tool's call turns off, for that tool, the move of a running call to the background and a call's live output. It reads calls from the `classic.PostToolUse`, `classic.PostToolUseFailure`, and `classic.PermissionDenied` events and from `tool.check`, which wrap nothing.
 
 ## License
 

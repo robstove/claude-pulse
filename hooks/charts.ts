@@ -153,8 +153,8 @@ export const toolsSvg = (w: number, tools: [string, ToolStat][]): string => {
     const shown = toolLabel(name)
     const short = shown.length > 18 ? `${shown.slice(0, 17)}…` : shown
     const spread = s.samples?.length ? `, p50 ${fmtMs(percentile(s.samples, 0.5))}, p95 ${fmtMs(percentile(s.samples, 0.95))}` : ''
-    const refused = (s.refused ? `, ${s.refused} refused` : '') + (s.waited ? `, ${s.waited} with approval ${fmtMs(s.waitMs ?? 0)}` : '')
-    const title = `${name}: ${s.count} calls, ${s.errors} errors${refused}, ${fmtMs(s.ms)} total, ${fmtMs(s.ms / Math.max(1, s.count - (s.waited ?? 0)))} average${spread}`
+    const refused = s.refused ? `, ${s.refused} refused` : ''
+    const title = `${name}: ${s.count} calls, ${s.errors} errors${refused}, ${fmtMs(s.ms)} total, ${fmtMs(s.ms / Math.max(1, s.count))} average${spread}`
     return (
       `<g><title>${esc(title)}</title><rect y="${y}" width="${w}" height="${rowH}" fill="transparent"/>` +
       `<text x="0" y="${y + 14}" fill="${HEX.muted}" font-size="11" ${FONT}>${esc(short)}</text>` +
@@ -164,7 +164,7 @@ export const toolsSvg = (w: number, tools: [string, ToolStat][]): string => {
         ? `<rect x="${(labelW + bw - errW).toFixed(1)}" y="${y + 6}" width="${Math.max(errW, 3).toFixed(1)}" height="8" rx="4" fill="${HEX.bad}"/>`
         : '') +
       `<text x="${w}" y="${y + 14}" text-anchor="end" fill="${HEX.muted}" font-size="11" font-variant-numeric="tabular-nums" ${FONT}>` +
-      `${s.count}× ${s.waited === s.count ? 'approval' : esc(fmtMs(s.ms))}</text></g>`
+      `${s.count}× ${esc(fmtMs(s.ms))}</text></g>`
     )
   })
   return svg(w, Math.max(rowH, tools.length * rowH), rows.join(''))

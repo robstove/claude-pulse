@@ -1,5 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
+import { ran } from './calls'
+
 type On = Parameters<Extract<Parameters<typeof test>[1], (...args: never[]) => unknown>>[1]
 
 const PANE = {
@@ -27,7 +29,9 @@ const world = (on: On, entries: Record<string, unknown> = {}) => {
   on('session.usage', () => ({ value: { startedAt: 0, context: { tokens: 1_000, window: 200_000, percent: 1 }, rateLimits: [], cost: { usd: 0.5 } } }))
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
-  on('tool.call', () => ({ result: {} }))
+  on('classic.PostToolUse', () => ({}))
+  on('classic.PostToolUseFailure', () => ({}))
+  on('classic.PermissionDenied', () => ({}))
   on('store.get', (_, e) => ({ value: store.get(e.key) }))
   on('store.set', (_, e) => {
     store.set(e.key, JSON.parse(JSON.stringify(e.value)))
@@ -44,10 +48,10 @@ test('a slow-call label holds a name, and no content reaches the store or the pa
   const { store } = world(on)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await $.turn.start({ text: 'hi', turnId: 't1' })
-  await $.tool.call({ tool: 'Bash', command: `cd /repo && API_KEY=${SECRET} "/usr/bin/curl" -H "Authorization: ${SECRET}" https://x.test` })
-  await $.tool.call({ tool: 'WebFetch', url: `https://user:${SECRET}@api.example.com/v1?key=${SECRET}`, prompt: SECRET })
-  await $.tool.call({ tool: 'Grep', pattern: SECRET })
-  await $.tool.call({ tool: 'Read', file_path: `/home/me/${SECRET}/src/a.ts` })
+  await ran($, 'Bash', { command: `cd /repo && API_KEY=${SECRET} "/usr/bin/curl" -H "Authorization: ${SECRET}" https://x.test` }, { ms: 400 })
+  await ran($, 'WebFetch', { url: `https://user:${SECRET}@api.example.com/v1?key=${SECRET}`, prompt: SECRET }, { ms: 300 })
+  await ran($, 'Grep', { pattern: SECRET }, { ms: 200 })
+  await ran($, 'Read', { file_path: `/home/me/${SECRET}/src/a.ts` }, { ms: 100 })
   await $.turn.complete({ answer: '', durationMs: 2_000, isAborted: false, turnId: 't1', reason: 'answer' })
 
   expect(JSON.stringify([...store.values()])).not.toContain(SECRET)
@@ -83,7 +87,7 @@ test('with every engine call Pulse makes failing, each event still passes and th
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: 'done' }))
-  on('tool.call', () => ({ result: { marked: true } }))
+  on('classic.PostToolUse', () => ({ additionalContext: ['marked'] }))
   on('ui.render', { component: 'PromptHint' }, ($, e) => {
     const { Text } = $.ui.resolve(e)
     return <Text>{e.props.hint}</Text>
@@ -91,7 +95,7 @@ test('with every engine call Pulse makes failing, each event still passes and th
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await $.turn.start({ text: 'hi', turnId: 't1' })
-  expect(await $.tool.call({ tool: 'Bash', command: 'ls' })).toEqual({ result: { marked: true } })
+  expect(await ran($, 'Bash', { command: 'ls' })).toEqual({ additionalContext: ['marked'] })
   expect(await $.turn.complete({ answer: '', durationMs: 2_000, isAborted: false, turnId: 't1', reason: 'answer' })).toEqual({ text: 'done' })
 
   const hint = await $.ui.mount({ ...HINT, surface: 'desktop' })

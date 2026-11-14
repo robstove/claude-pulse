@@ -1,5 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
+import { ran } from './calls'
+
 const PANE = {
   plugin: 'pulse',
   component: 'Pane',
@@ -33,7 +35,9 @@ const engine = (on: On) => {
   }))
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
-  on('tool.call', () => ({ result: {} }))
+  on('classic.PostToolUse', () => ({}))
+  on('classic.PostToolUseFailure', () => ({}))
+  on('classic.PermissionDenied', () => ({}))
   on('store.get', (_, e) => ({ value: store.get(e.key) }))
   on('store.set', (_, e) => {
     store.set(e.key, JSON.parse(JSON.stringify(e.value)))
@@ -95,8 +99,8 @@ test('subagents, compactions, prompts, requests, slow calls, and files show in t
     fork: false,
   })
   await $.turn.complete({ answer: '', durationMs: 5_000, isAborted: false, turnId: 'a-t1', agentId: 'a1', reason: 'answer', usage: usage('claude-haiku-5-5', 200) })
-  await $.tool.call({ tool: 'Edit', file_path: '/repo/src/a.ts', old_string: 'a', new_string: 'b' })
-  await $.tool.call({ tool: 'Bash', command: 'cd "C:/my repo" && cd sub; npm test' })
+  await ran($, 'Edit', { file_path: '/repo/src/a.ts', old_string: 'a', new_string: 'b' })
+  await ran($, 'Bash', { command: 'cd "C:/my repo" && cd sub; npm test' })
   await $.turn.complete({ answer: '', durationMs: 9_000, isAborted: false, turnId: 't1', reason: 'answer', usage: usage('claude-opus-5-5', 500) })
   await $.session.compact({ trigger: 'manual', messages: [SUMMARY, SUMMARY] })
 
@@ -176,7 +180,7 @@ test('the activity split counts only turns timed with the gaps, not turns from b
     metrics: {
       mainTurns: 3, agentTurns: 0, abortedTurns: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
       turnMsTotal: 30_000, lastTurnMs: 10_000, longestTurnMs: 10_000, toolCalls: 0, toolErrors: 0, toolMsTotal: 0,
-      byTool: {}, models: {}, pluginCalls: {}, turns: [], lastCostUsd: 0.4,
+      byTool: {}, models: {}, turns: [], lastCostUsd: 0.4,
     },
   })
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })

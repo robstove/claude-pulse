@@ -68,7 +68,6 @@ export const drawPane = ({ Box, Text, Svg }: Kit, { m, usage, now, daily, elapse
   const inTotal = m.cacheReadTokens + m.cacheWriteTokens + m.inputTokens
   const cachedPct = inTotal > 0 ? Math.round((m.cacheReadTokens / inTotal) * 100) : 0
   const costPending = m.turns.length > 0 && m.turns.every(t => t.costUsd === null)
-  const pluginCalls = Object.entries(m.pluginCalls)
   const models = Object.entries(m.models ?? {}).sort((a, b) => b[1].outputTokens - a[1].outputTokens)
   const paces = usage.rateLimits.map(l => paceOf(l, m.rateStart?.[l.kind], now))
   const compactions = m.compactions ?? []
@@ -209,12 +208,6 @@ export const drawPane = ({ Box, Text, Svg }: Kit, { m, usage, now, daily, elapse
           </Text>
           {m.toolErrors > 0 && <Text color="error"> · {m.toolErrors} failed</Text>}
           {(m.toolRefusals ?? 0) > 0 && <Text color="warning"> · {m.toolRefusals} refused</Text>}
-          {(m.toolWaited ?? 0) > 0 && (
-            <Text dimColor>
-              {' '}
-              · {m.toolWaited} with approval {fmtMs(m.toolWaitMs ?? 0)}
-            </Text>
-          )}
           {backgroundText(m) !== '' && <Text dimColor> · {backgroundText(m)}</Text>}
         </Text>,
         tools.length === 0 ? (
@@ -230,7 +223,7 @@ export const drawPane = ({ Box, Text, Svg }: Kit, { m, usage, now, daily, elapse
                 <Text dimColor>{toolLabel(name).slice(0, 13).padEnd(14)}</Text>
                 <Text color={s.errors > 0 ? 'error' : 'suggestion'}>{blockBar(s.ms / (tools[0]?.[1].ms || 1), 12)[0].padEnd(13)}</Text>
                 <Text>
-                  {s.count}× {s.waited === s.count ? 'approval' : fmtMs(s.ms)}
+                  {s.count}× {fmtMs(s.ms)}
                 </Text>
               </Text>
             )),
@@ -262,11 +255,6 @@ export const drawPane = ({ Box, Text, Svg }: Kit, { m, usage, now, daily, elapse
 
       {historySection(ui, daily, now)}
 
-      {pluginCalls.length > 0 && (
-        <Text size="caption" dimColor>
-          Not counted above: {pluginCalls.map(([p, n]) => `${n} calls by ${p}`).join(', ')}
-        </Text>
-      )}
     </Box>
   )
 }

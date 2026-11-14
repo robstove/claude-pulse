@@ -18,7 +18,6 @@ export const EMPTY: Metrics = {
   toolMsTotal: 0,
   byTool: {},
   models: {},
-  pluginCalls: {},
   turns: [],
   lastCostUsd: null,
 }
