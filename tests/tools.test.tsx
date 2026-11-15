@@ -1,7 +1,5 @@
 import { expect, test } from 'claude-code/testing'
 
-import { ran } from './calls'
-
 type On = Parameters<Extract<Parameters<typeof test>[1], (...args: never[]) => unknown>>[1]
 
 const PANE = {
@@ -13,8 +11,8 @@ const PANE = {
 
 const HINT = { plugin: 'pulse', component: 'PromptHint', props: { isDraft: false, isWorking: false, hint: '' } } as const
 
-// A clock the test moves, and a store. tool.check refuses the tools in `denies`; the tool itself never runs in the kit.
-const world = (on: On, denies: readonly string[] = []) => {
+// A clock the test moves, and a store; `tool.call` answers from `answers` by tool name.
+const world = (on: On, answers: Record<string, unknown> = {}, asks: readonly string[] = []) => {
   const clock = { now: 10_000 }
   const store = new Map<string, unknown>()
   on('command.register', () => ({ value: { command: 'pulse' } }))
@@ -28,11 +26,11 @@ const world = (on: On, denies: readonly string[] = []) => {
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
   on('prompt.submit', (_, e) => ({ text: e.text }))
-  on('tool.check', (_, e) => ({ decision: denies.includes(e.tool) ? 'deny' : 'allow', reason: 'a rule' }))
-  on('tool.call', () => ({ result: {} }))
-  on('classic.PostToolUse', () => ({}))
-  on('classic.PostToolUseFailure', () => ({}))
-  on('classic.PermissionDenied', () => ({}))
+  on('tool.check', (_, e) => ({ decision: asks.includes(e.tool) ? 'ask' : 'allow' }))
+  on('tool.call', (_, e) => {
+    clock.now += 3_000
+    return (answers[e.tool] ?? { result: {} }) as never
+  })
   on('store.get', (_, e) => ({ value: store.get(e.key) }))
   on('store.set', (_, e) => {
     store.set(e.key, JSON.parse(JSON.stringify(e.value)))
@@ -52,58 +50,45 @@ const hintLine = async ($: Parameters<Extract<Parameters<typeof test>[1], (...ar
   return line
 }
 
-test('a call a rule or auto mode refused counts as refused, not as an error, and adds no time', async ($, on) => {
-  world(on, ['Bash'])
+test('a refused call counts as refused, not as an error, and adds no time', async ($, on) => {
+  world(on, { Bash: { deny: 'Permission denied' } })
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await $.tool.call({ tool: 'Bash', command: 'rm -rf /', tool_use_id: 'u1' })
-  await $.classic.PermissionDenied({ tool_name: 'Write', tool_input: {}, tool_use_id: 'u2', reason: 'the classifier' })
-  // A second report of one refusal counts once.
-  await $.classic.PermissionDenied({ tool_name: 'Write', tool_input: {}, tool_use_id: 'u2', reason: 'the classifier' })
-  await ran($, 'Read', { file_path: '/a.ts' }, { ms: 3_000 })
+  await $.tool.call({ tool: 'Read', file_path: '/a.ts', tool_use_id: 'u2' })
 
-  expect(await hintLine($)).toContain('3 tools (2 refused)')
+  expect(await hintLine($)).toContain('2 tools (1 refused)')
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /^3 calls · 3s/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: / · 2 refused/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^2 calls · 3s/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: / · 1 refused/ })).toBeDefined()
   await ui.unmount()
 })
 
-test('a call that ran after a deny Pulse saw counts as run, not refused', async ($, on) => {
-  world(on, ['Bash'])
+test('a tool error is still an error', async ($, on) => {
+  world(on, { Bash: { result: 'exit 1', text: 'exit 1', isError: true } })
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  await $.tool.call({ tool: 'Bash', command: 'ls', tool_use_id: 'u1' })
-  // A plugin above Pulse turned the deny into an allow, and the tool ran.
-  await ran($, 'Bash', { command: 'ls' }, { id: 'u1' })
-  expect(await hintLine($)).toMatch(/ 1 tools$/)
+  await $.tool.call({ tool: 'Bash', command: 'false', tool_use_id: 'u1' })
+  expect(await hintLine($)).toContain('1 tools (1 err)')
 })
 
-test('a tool failure is an error, and an interrupt is not', async ($, on) => {
-  world(on)
+test('a call put to a decider counts with no time, so the wait for approval is no tool time', async ($, on) => {
+  // The kit has no person to answer an ask, so the asked call ends in an error; its time stays out all the same.
+  world(on, {}, ['Bash'])
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  await ran($, 'Bash', { command: 'false' }, { failed: true })
-  await $.classic.PostToolUseFailure({ tool_name: 'Bash', tool_input: { command: 'sleep 99' }, tool_use_id: 'u9', error: 'stopped', is_interrupt: true, duration_ms: 50 })
-  expect(await hintLine($)).toContain('2 tools (1 err)')
-})
-
-test('tool time is the engine duration_ms, which holds no permission wait', async ($, on) => {
-  const { clock } = world(on)
-  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  // A person took two minutes to approve; the engine reports the 4s the tool ran.
-  clock.now += 120_000
-  await ran($, 'Bash', { command: 'git push' }, { ms: 4_000 })
+  await $.tool.call({ tool: 'Bash', command: 'git push', tool_use_id: 'u1' })
+  await $.tool.call({ tool: 'Read', file_path: '/a.ts', tool_use_id: 'u2' })
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /^1 calls · 4s/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^Bash +.*1× 4s$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^2 calls · 3s/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: / · 1 with approval 0ms/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Bash +1× approval$/ })).toBeDefined()
   await ui.unmount()
 })
 
 test('a background task is timed to its notification, which is no prompt of the person', async ($, on) => {
-  const { clock } = world(on)
+  const { clock } = world(on, { Bash: { result: { stdout: '', backgroundTaskId: 'bg1' } } })
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await $.prompt.submit({ text: 'build it', wait: false, origin: { kind: 'composer' } })
-  const input = { command: 'npm run build', description: 'Build the app', run_in_background: true }
-  await ran($, 'Bash', input, { ms: 3_000, response: { stdout: '', backgroundTaskId: 'bg1' } })
+  await $.tool.call({ tool: 'Bash', command: 'npm run build', description: 'Build the app', run_in_background: true, tool_use_id: 'u1' })
 
   const running = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await running.find({ type: 'Text', text: / · 1 in background/ })).toBeDefined()

@@ -1,7 +1,6 @@
 import { atom, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Metrics } from '../types'
 import { FILE_TOOLS, SAMPLES, callLabel, pushSlow } from './derive'
 import { quietly } from './quietly'
 import { EMPTY, SHAPE, live } from './state'
@@ -15,10 +14,15 @@ type On = Parameters<Register>[0]
 // Paths stop at 100, so one session save stays near 30 KB.
 const MAX_FILES = 100
 const MAX_TASKS = 50
-const MAX_REFUSED = 200
+const MAX_PENDING = 200
 
-// The tool_use_ids already counted as refused: tool.check can run more than once for one call.
-const refusedIds = new Set<string>()
+// The tool_use_ids that tool.check put to a decider. A call that never reaches tool.call leaves its id, so the oldest goes past MAX_PENDING.
+const asked = new Set<string>()
+
+const markAsked = (id: string): void => {
+  if (asked.size >= MAX_PENDING) asked.delete(asked.values().next().value as string)
+  asked.add(id)
+}
 
 async function settleTask($: EngineInterface, id: string, ended: 'ok' | 'failed'): Promise<void> {
   await quietly(async () => {
@@ -47,93 +51,85 @@ export async function noteTaskNotice($: EngineInterface, text: string): Promise<
   return true
 }
 
-async function refuse($: EngineInterface, tool: string, id: string): Promise<void> {
-  if (refusedIds.has(id)) return
-  if (refusedIds.size >= MAX_REFUSED) refusedIds.delete(refusedIds.values().next().value as string)
-  refusedIds.add(id)
-  await quietly(() =>
-    update($, metrics, m => {
-      const prev = m.byTool[tool] ?? { count: 0, errors: 0, ms: 0 }
-      return { ...m, toolRefusals: (m.toolRefusals ?? 0) + 1, byTool: { ...m.byTool, [tool]: { ...prev, refused: (prev.refused ?? 0) + 1 } } }
-    }),
-  )
-}
-
-type Ran = { tool: string; id: string; input: unknown; ms: number | undefined; failed: boolean; result?: unknown }
-
-/** Counts a call that ran, with the engine's own run time: no permission prompt and no hook time are in it. */
-async function record($: EngineInterface, ran: Ran): Promise<void> {
-  live.toolCalls += 1
-  await quietly(async () => {
-    const input = (typeof ran.input === 'object' && ran.input !== null ? ran.input : {}) as Readonly<Record<string, unknown>>
-    const label = callLabel(input)
-    const task = ran.failed ? undefined : taskOf(ran.result)
-    const now = task === undefined ? 0 : await $.clock.now()
-    const path = input.file_path ?? input.notebook_path
-    const file = !ran.failed && FILE_TOOLS.has(ran.tool) && typeof path === 'string' ? path : null
-    const ms = ran.ms ?? null
-    // A plugin above Pulse can turn the deny it saw into an allow; the call then ran, so its refusal is taken back.
-    const unrefuse = refusedIds.delete(ran.id)
-    await update($, metrics, (m): Metrics => {
-      const held = m.byTool[ran.tool] ?? { count: 0, errors: 0, ms: 0 }
-      const prev = unrefuse ? { ...held, refused: Math.max(0, (held.refused ?? 0) - 1) } : held
-      const files = file === null ? m.files : { ...m.files, [file]: (m.files?.[file] ?? 0) + 1 }
-      const tasks =
-        task === undefined
-          ? m.tasks
-          : Object.fromEntries(Object.entries({ ...m.tasks, [task]: { tool: ran.tool, label, startedAt: now - (ms ?? 0) } }).slice(-MAX_TASKS))
-      return {
-        ...m,
-        toolRefusals: unrefuse ? Math.max(0, (m.toolRefusals ?? 0) - 1) : m.toolRefusals,
-        toolCalls: m.toolCalls + 1,
-        toolErrors: m.toolErrors + (ran.failed ? 1 : 0),
-        toolMsTotal: m.toolMsTotal + (ms ?? 0),
-        byTool: {
-          ...m.byTool,
-          [ran.tool]: {
-            ...prev,
-            count: prev.count + 1,
-            errors: prev.errors + (ran.failed ? 1 : 0),
-            ms: prev.ms + (ms ?? 0),
-            // A call with no duration_ms, from an engine before it, adds no sample rather than a false zero.
-            samples: ms === null ? prev.samples : [...(prev.samples ?? []), ms].slice(-SAMPLES),
-          },
-        },
-        slowest: ms === null ? m.slowest : pushSlow(m.slowest, { tool: ran.tool, ms, label }),
-        files: files && Object.keys(files).length > MAX_FILES ? m.files : files,
-        tasks,
-      }
-    })
-  })
-}
-
-// Pulse hooks no tool.call: a plugin that wraps a tool's call turns off, for that tool, the move of a running call to the
-// background and a call's live output. The classic events below fire around the call and wrap nothing.
+// tool.call's span holds the permission decision. The span of a call that tool.check put to a decider (a person, auto mode's
+// classifier, a host) counts as wait time apart from tool time, because the engine reports no point where the decision ends.
 export function observeTools(on: On): void {
-  on('classic.PostToolUse', async ($, e, next) => {
-    const r = await next(e)
-    await record($, { tool: e.tool_name, id: e.tool_use_id, input: e.tool_input, ms: e.duration_ms, failed: false, result: e.tool_response })
-    return r
-  })
-
-  on('classic.PostToolUseFailure', async ($, e, next) => {
-    const r = await next(e)
-    // An interrupt is the person's stop, not the tool's failure.
-    await record($, { tool: e.tool_name, id: e.tool_use_id, input: e.tool_input, ms: e.duration_ms, failed: e.is_interrupt !== true })
-    return r
-  })
-
-  // A rule or a hook refused the call before it ran: the verdict holds the PreToolUse hooks' decision too.
   on('tool.check', async ($, e, next) => {
     const verdict = await next(e)
-    if (verdict.decision === 'deny' && e.tool_use_id !== undefined) await refuse($, e.tool, e.tool_use_id)
+    if (verdict.decision === 'ask' && e.tool_use_id !== undefined) markAsked(e.tool_use_id)
     return verdict
   })
 
-  // Auto mode's classifier refused the call.
-  on('classic.PermissionDenied', async ($, e, next) => {
-    const r = await next(e)
-    await refuse($, e.tool_name, e.tool_use_id)
-    return r
+  on('tool.call', async ($, e, next) => {
+    // Only the engine's dispatch is the model's call; another plugin's $.tool.call is counted apart.
+    const caller = next.origin.plugin
+    if (caller !== 'engine') {
+      const ran = await next(e)
+      if (e.tool_use_id !== undefined) asked.delete(e.tool_use_id)
+      await quietly(() => update($, metrics, m => ({ ...m, pluginCalls: { ...m.pluginCalls, [caller]: (m.pluginCalls[caller] ?? 0) + 1 } })))
+      return ran
+    }
+    const started = await quietly(() => $.clock.now())
+    const ran = await next(e)
+    const ended = started === undefined ? undefined : await quietly(() => $.clock.now())
+    const id = e.tool_use_id
+    const wasAsked = id !== undefined && asked.delete(id)
+    // A deny is a refusal: by a rule, a person, or a hook, before the tool ran or after it to withhold its result.
+    // A tool's own failure comes back as a result with isError.
+    const refused = ran.deny !== undefined
+    if (!refused) live.toolCalls += 1
+    const span = started === undefined || ended === undefined ? 0 : Math.max(0, ended - started)
+    // The tool's own time; null when the span also holds a decider's wait.
+    const ms = wasAsked ? null : span
+    await quietly(async () => {
+      const failed = !refused && ran.isError === true
+      const input = e as unknown as Readonly<Record<string, unknown>>
+      const label = callLabel(input)
+      const task = refused || failed ? undefined : taskOf(ran.result)
+      // The task starts when its call does, or, after a decider's wait, when the call answers, so the wait stays out.
+      const startedAt = task === undefined ? 0 : ((wasAsked ? ended : started) ?? (await $.clock.now()))
+      const path = input.file_path ?? input.notebook_path
+      const file = !refused && !failed && FILE_TOOLS.has(e.tool) && typeof path === 'string' ? path : null
+      await update($, metrics, m => {
+        const prev = m.byTool[e.tool] ?? { count: 0, errors: 0, ms: 0 }
+        if (refused) {
+          return {
+            ...m,
+            toolRefusals: (m.toolRefusals ?? 0) + 1,
+            byTool: { ...m.byTool, [e.tool]: { ...prev, refused: (prev.refused ?? 0) + 1 } },
+          }
+        }
+        const files = file === null ? m.files : { ...m.files, [file]: (m.files?.[file] ?? 0) + 1 }
+        const tasks =
+          task === undefined
+            ? m.tasks
+            : Object.fromEntries(Object.entries({ ...m.tasks, [task]: { tool: e.tool, label, startedAt } }).slice(-MAX_TASKS))
+        return {
+          ...m,
+          toolCalls: m.toolCalls + 1,
+          toolErrors: m.toolErrors + (failed ? 1 : 0),
+          toolMsTotal: m.toolMsTotal + (ms ?? 0),
+          toolWaited: (m.toolWaited ?? 0) + (ms === null ? 1 : 0),
+          toolWaitMs: (m.toolWaitMs ?? 0) + (ms === null ? span : 0),
+          byTool: {
+            ...m.byTool,
+            [e.tool]: {
+              ...prev,
+              count: prev.count + 1,
+              errors: prev.errors + (failed ? 1 : 0),
+              ms: prev.ms + (ms ?? 0),
+              waited: (prev.waited ?? 0) + (ms === null ? 1 : 0),
+              waitMs: (prev.waitMs ?? 0) + (ms === null ? span : 0),
+              samples: ms === null ? prev.samples : [...(prev.samples ?? []), ms].slice(-SAMPLES),
+            },
+          },
+          slowest: ms === null ? m.slowest : pushSlow(m.slowest, { tool: e.tool, ms, label }),
+          files: files && Object.keys(files).length > MAX_FILES ? m.files : files,
+          tasks,
+        }
+      })
+    })
+
+    return ran
   })
 }

@@ -3,6 +3,9 @@ export type ToolStat = {
   errors: number
   /** Calls a permission rule, a person, or a hook refused before they ran; they add no time. */
   refused?: number
+  /** Calls a decider held: their whole span, decision and run, is in waitMs; ms and samples leave them out. */
+  waited?: number
+  waitMs?: number
   ms: number
   /** The last durations of this tool, newest last, for the p50 and p95; optional so 0.1.2 saves load. */
   samples?: number[]
@@ -94,11 +97,13 @@ export type Metrics = {
   longestTurnMs: number
   toolCalls: number
   toolErrors: number
-  /** The tools' own run time, from the engine's duration_ms: no permission prompt and no hook time are in it. */
+  /** Time of the calls that no decider held, so a permission prompt's wait is not in it. */
   toolMsTotal: number
   byTool: Record<string, ToolStat>
   /** Optional, so values stored before 0.1.1 still load under the same shape tag. */
   models?: Record<string, ModelStat>
+  /** Calls another plugin made through the tool chain, by plugin name; not the model's. */
+  pluginCalls: Record<string, number>
   turns: TurnRecord[]
   lastCostUsd: number | null
   /** The session these figures belong to; absent on values saved before 0.1.2. */
@@ -124,6 +129,8 @@ export type Metrics = {
   rateStart?: Record<string, RateStart>
   // The fields below came in 0.3.0.
   toolRefusals?: number
+  toolWaited?: number
+  toolWaitMs?: number
   /** Background tasks by task id. */
   tasks?: Record<string, OpenTask>
   background?: BackgroundStat

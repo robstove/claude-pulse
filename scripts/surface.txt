@@ -10,13 +10,11 @@ call $.ui.invalidate
 call $.ui.open
 call $.ui.resolve
 hook agent.spawn
-hook classic.PermissionDenied
-hook classic.PostToolUse
-hook classic.PostToolUseFailure
 hook command.run
 hook prompt.submit
 hook session.compact
 hook session.start
+hook tool.call
 hook tool.check
 hook turn.complete
 hook turn.start

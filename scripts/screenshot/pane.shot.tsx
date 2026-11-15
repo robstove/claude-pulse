@@ -31,9 +31,14 @@ test('screenshot session', async ($, on) => {
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
   on('prompt.submit', (_, e) => ({ text: e.text }))
-  on('classic.PostToolUse', () => ({}))
-  on('classic.PostToolUseFailure', () => ({}))
-  on('classic.PermissionDenied', () => ({}))
+  on('tool.check', () => ({ decision: 'allow' }))
+  on('tool.call', (_, e) => {
+    const input = e as unknown as Record<string, unknown>
+    state.now += Number(input.ms ?? 800)
+    if (input.refuse) return { deny: 'Refused by a rule' }
+    if (input.background) return { result: { stdout: '', backgroundTaskId: 'build1' } }
+    return input.fail ? { result: 'error', text: 'error', isError: true } : { result: {} }
+  })
   on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'sub1' }))
   on('session.compact', () => ({ messages: [{ role: 'user' as const, text: 'summary', toolUses: [] }], tokensBefore: 610_000, tokensAfter: 90_000 }))
   on('turn.step', async function* (_, e) {
@@ -81,13 +86,10 @@ test('screenshot session', async ($, on) => {
         // Read the stream to its end.
       }
     }
-    for (const { tool, ms, fail, refuse, ...input } of calls.slice(0, 2 + (turn % calls.length))) {
-      const id = `u${turn}-${tool}-${ms}`
-      state.now += ms
+    for (const { fail, refuse, ...call } of calls.slice(0, 2 + (turn % calls.length))) {
       // One failed edit and one refused push in the session, not one per turn.
-      if (refuse && turn === 8) await $.classic.PermissionDenied({ tool_name: tool, tool_input: input, tool_use_id: id, reason: 'auto mode' })
-      else if (fail && turn === 5) await $.classic.PostToolUseFailure({ tool_name: tool, tool_input: input, tool_use_id: id, error: 'failed', duration_ms: ms })
-      else if (!refuse) await $.classic.PostToolUse({ tool_name: tool, tool_input: input, tool_response: {}, tool_use_id: id, duration_ms: ms })
+      const flags = { ...(fail && turn === 5 ? { fail } : {}), ...(refuse && turn === 8 ? { refuse } : {}) }
+      await $.tool.call({ ...call, ...flags, tool_use_id: `u${turn}-${call.tool}-${call.ms}` } as never)
     }
     if (turn === 6) {
       await $.agent.spawn({
@@ -103,15 +105,7 @@ test('screenshot session', async ($, on) => {
       })
       await $.turn.complete({ answer: '', durationMs: 48_000, isAborted: false, turnId: 'a-t1', agentId: 'sub1', reason: 'answer', usage: usage('claude-sonnet-5-5', 3_000) })
     }
-    if (turn === 12) {
-      await $.classic.PostToolUse({
-        tool_name: 'Bash',
-        tool_input: { command: 'npm run build', description: 'Build the app', run_in_background: true },
-        tool_response: { stdout: '', backgroundTaskId: 'build1' },
-        tool_use_id: 'bg',
-        duration_ms: 400,
-      })
-    }
+    if (turn === 12) await $.tool.call({ tool: 'Bash', command: 'npm run build', description: 'Build the app', run_in_background: true, background: true, ms: 400, tool_use_id: 'bg' } as never)
     if (turn === 14) {
       state.now += 380_000
       await $.prompt.submit({ text: '<task-notification>\n<task-id>build1</task-id>\n<status>completed</status>\n</task-notification>', wait: false, origin: { kind: 'task-notification' } })
