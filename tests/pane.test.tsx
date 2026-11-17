@@ -1,5 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
+import { VERSION } from '../hooks/version'
+
 const PANE = {
   plugin: 'pulse',
   component: 'Pane',
@@ -13,6 +15,22 @@ const PANE = {
     view: {},
   },
 } as const
+
+test('the pane title carries the version, so the person sees which Pulse runs', async ($, on) => {
+  const titles: (string | undefined)[] = []
+  on('command.register', () => ({ value: { command: 'pulse' } }))
+  on('ui.open', (_, e) => {
+    titles.push(e.title)
+    return { value: { isPlaced: true } }
+  })
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.run', () => ({ text: '' }))
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'pulse', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
+  expect(VERSION).toMatch(/^\d+\.\d+\.\d+$/)
+  expect(titles).toEqual([`Pulse ${VERSION}`, `Pulse ${VERSION}`])
+})
 
 test('the pane shows tool counts and session figures, on every surface', async ($, on) => {
   on('command.register', () => ({ value: { command: 'pulse' } }))

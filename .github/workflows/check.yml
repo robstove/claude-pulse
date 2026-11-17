@@ -38,3 +38,5 @@ jobs:
         run: claude plugin test .
       - name: Surface
         run: node scripts/check-surface.mjs
+      - name: Version
+        run: node scripts/check-version.mjs

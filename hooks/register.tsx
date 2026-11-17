@@ -10,12 +10,14 @@ import { quietly } from './quietly'
 import { EMPTY, MAX_TURNS, SHAPE, hasData, live, setLevels } from './state'
 import { statusText } from './status'
 import { noteTaskNotice, observeTools } from './tools'
+import { VERSION } from './version'
 
 // The state scan reads an atom only where its file declares it, so each file that reads or writes Metrics declares the same one.
 const metrics = atom({ plugin: 'pulse', key: 'metrics' } as const, EMPTY, { shape: SHAPE })
 
 const PANE = 'pulse'
-const TITLE = 'Pulse'
+// The version in the title tells the person which Pulse runs, so an update shows.
+const TITLE = `Pulse ${VERSION}`
 // The running bar redraws each second for the first two minutes of a turn, then every fifth second.
 const FAST_TICKS_MS = 120_000
 const SLOW_TICK = 5

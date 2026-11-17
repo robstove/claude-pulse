@@ -40,7 +40,7 @@ In the desktop app, where `/plugin` does not run: click + next to the prompt box
 
 ## Use
 
-The pane opens when a session starts. If you close it, `/pulse` opens it again.
+The pane opens when a session starts. If you close it, `/pulse` opens it again. Its title shows the Pulse version, so you can see when an update reached the session.
 
 Counts start when the plugin first loads in a session. Cost, elapsed time, context, and rate limits come from the engine and cover the whole session.
 
