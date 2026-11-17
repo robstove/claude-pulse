@@ -91,6 +91,9 @@ const commandName =(command: string): string => {
   return program.replace(/["']/g, '').split(/[\\/]/).pop() ?? ''
 }
 
+/** The last two parts of a path, which say which file without a long absolute path. */
+export const shortPath = (path: string): string => path.split(/[\\/]/).filter(Boolean).slice(-2).join('/')
+
 /** The host of an address, without login, path, or query; empty when the text is not an address. */
 const hostOf = (url: string): string => {
   try {
@@ -112,7 +115,7 @@ export const callLabel = (input: Readonly<Record<string, unknown>>): string => {
   const command = text('command')
   if (command !== '') return cut(commandName(command))
   const path = text('file_path') || text('notebook_path')
-  if (path !== '') return cut(path.split(/[\\/]/).filter(Boolean).slice(-2).join('/'))
+  if (path !== '') return cut(shortPath(path))
   const url = text('url')
   return url !== '' ? hostOf(url) : ''
 }

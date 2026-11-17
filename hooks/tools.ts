@@ -16,6 +16,9 @@ type On = Parameters<Register>[0]
 const MAX_FILES = 100
 const MAX_TASKS = 50
 const MAX_PENDING = 200
+// The engine's words when the person says no at the permission dialog, or when an ask has nobody to answer it. No field marks
+// these refusals, so the text is the sign; if the engine changes the words, such a call counts as failed again.
+const REJECTED = /^(The user doesn't want to proceed with this tool use|Permission to use \S+ has been denied)/
 
 // The tool_use_ids that tool.check put to a decider, and those it refused. A call that never reaches tool.call leaves its id,
 // so the oldest goes past MAX_PENDING.
@@ -87,8 +90,9 @@ export function observeTools(on: On): void {
     const wasAsked = id !== undefined && asked.delete(id)
     const wasDenied = id !== undefined && denied.delete(id)
     // A rule or a hook refuses through tool.check, and the call comes back as an error; a plugin beneath answers a deny.
-    // A refusal at the permission dialog is an error of an asked call, which Pulse cannot tell from a failure.
-    const refused = ran.deny !== undefined || (wasDenied && ran.isError === true)
+    // A refusal at the permission dialog comes back as an asked call's error that the engine words in its fixed refusal text.
+    const rejected = wasAsked && ran.isError === true && REJECTED.test(ran.text ?? '')
+    const refused = ran.deny !== undefined || (wasDenied && ran.isError === true) || rejected
     // The running turn counts the main loop's calls, as its steps do; a subagent's calls are its own.
     if (!refused && e.agentId === undefined) live.toolCalls += 1
     const span = started === undefined || ended === undefined ? 0 : Math.max(0, ended - started)

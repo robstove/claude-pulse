@@ -18,7 +18,12 @@ export const HEX = {
   rule: 'rgba(139,148,158,0.35)',
 } as const
 
-const FONT = 'font-family="system-ui,-apple-system,Segoe UI,sans-serif"'
+/** The theme color a meter level takes on a surface that draws Text. */
+export const THEME = { ok: 'success', warn: 'warning', bad: 'error' } as const
+
+export const FONT = 'font-family="system-ui,-apple-system,Segoe UI,sans-serif"'
+
+export const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`
 
 export const fmtNum = (n: number): string =>
   n >= 1_000_000 ? `${(n / 1_000_000).toFixed(2)}M` : n >= 1_000 ? `${(n / 1_000).toFixed(1)}k` : `${Math.round(n)}`
@@ -41,10 +46,10 @@ export const toolLabel = (name: string): string => {
   return parts.length >= 3 && parts[0] === 'mcp' ? parts.slice(2).join('__') : name
 }
 
-const esc = (s: string): string =>
+export const esc = (s: string): string =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
-const svg = (w: number, h: number, body: string): string =>
+export const svg = (w: number, h: number, body: string): string =>
   `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${body}</svg>`
 
 /** The height the markup declares, so an interactive frame is not left at its 150px default. */
@@ -211,7 +216,7 @@ export const modelsSvg = (w: number, models: [string, ModelStat][]): string => {
       `<rect x="${labelW}" y="${y + 6}" width="${barW}" height="8" rx="4" fill="${HEX.track}"/>` +
       `<g clip-path="url(#m${i})">${segs.join('')}</g>` +
       `<text x="${w}" y="${y + 14}" text-anchor="end" fill="${HEX.muted}" font-size="11" font-variant-numeric="tabular-nums" ${FONT}>` +
-      `${s.turns} ${s.turns === 1 ? 'turn' : 'turns'} · ${esc(fmtNum(s.outputTokens))} out</text></g>`
+      `${plural(s.turns, 'turn')} · ${esc(fmtNum(s.outputTokens))} out</text></g>`
     )
   })
   return svg(w, Math.max(rowH, models.length * rowH), rows.join(''))

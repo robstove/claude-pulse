@@ -8,8 +8,9 @@ const GLYPH = { ok: '●', warn: '▲', bad: '■' } as const
 
 /** One line for the prompt hint: context, the 5-hour limit, cost, tool calls, and the last turn's time. */
 export const statusText = (m: Metrics, usage: SessionUsage): string => {
-  const ctx = usage.context.percent ?? 0
-  const parts = [`${GLYPH[level(ctx)]} ctx ${ctx}%`]
+  const ctx = usage.context.percent
+  // The fill is unknown until the first response of a fresh or just-compacted window, and 0% would read as safe.
+  const parts = [ctx === undefined ? 'ctx -' : `${GLYPH[level(ctx)]} ctx ${ctx}%`]
   const fiveHour = usage.rateLimits.find(l => l.kind === 'five_hour')
   if (fiveHour) parts.push(`${GLYPH[level(fiveHour.percentUsed)]} 5h ${fiveHour.percentUsed}%`)
   if (usage.cost) parts.push(fmtUsd(usage.cost.usd))

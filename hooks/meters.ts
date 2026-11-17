@@ -1,15 +1,7 @@
 import type { Compaction, TurnRecord } from '../types'
-import { HEX, fmtMs, fmtUsd, level } from './charts'
+import { FONT, HEX, esc, fmtMs, fmtUsd, level, svg } from './charts'
 import type { Pace } from './derive'
 import { levels } from './state'
-
-const FONT = 'font-family="system-ui,-apple-system,Segoe UI,sans-serif"'
-
-const esc = (s: string): string =>
-  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-
-const svg = (w: number, h: number, body: string): string =>
-  `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${body}</svg>`
 
 export const paceTitle = (p: Pace): string =>
   `${p.label} window: ${p.pct}% used` +

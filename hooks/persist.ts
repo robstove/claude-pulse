@@ -28,26 +28,6 @@ export async function loadSession($: EngineInterface, id: string): Promise<Metri
   return isSaved(v) ? v.metrics : undefined
 }
 
-// Cost per local day across every session, so the History section needs no read of 50 saves.
-const DAILY = 'daily'
-const KEEP_DAYS = 60
-
-const isDaily = (v: unknown): v is Record<string, number> =>
-  typeof v === 'object' && v !== null && !Array.isArray(v) && Object.values(v).every(x => typeof x === 'number')
-
-export async function loadDaily($: EngineInterface): Promise<Record<string, number>> {
-  const v = await $.store.get(DAILY)
-  return isDaily(v) ? v : {}
-}
-
-/** Adds a turn's cost to its day and drops days past KEEP_DAYS. */
-export async function addDailyCost($: EngineInterface, day: string, usd: number): Promise<void> {
-  const held = await loadDaily($)
-  const next = { ...held, [day]: (held[day] ?? 0) + usd }
-  const keep = Object.keys(next).sort().slice(-KEEP_DAYS)
-  await $.store.set(DAILY, Object.fromEntries(keep.map(k => [k, next[k] ?? 0])))
-}
-
 // The store key that records which layout the saves hold, so the purge below runs once per layout change.
 const SHAPE_KEY = 'shape'
 

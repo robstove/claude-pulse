@@ -11,14 +11,14 @@ Live session metrics for Claude Code. Pulse tracks each session with hooks and s
 - **Activity**: how the active time splits between Claude at work and you between turns, with your prompt and slash-command counts. Task notifications, schedules, and messages from other sessions are not your prompts and do not count.
 - **Tokens**: cache read, cache write, input, and output as one stacked bar.
 - **Tools**: total time per tool, with failed calls in red and the p50 and p95 time on hover, plus the three slowest calls. Calls that other plugins make through the tool chain are counted apart.
-  - A call that a permission rule or a hook refused counts as refused, not as failed, and adds no time. A call you refuse at the permission dialog counts as a failed call with approval, because Claude Code reports it as the same error as an approved call that failed.
+  - A call that a permission rule, a hook, or you at the permission dialog refused counts as refused, not as failed, and adds no time. Claude Code marks a no at the dialog only by the words of its error, so if those words change, such a call counts as failed.
   - A call you interrupt counts, but not as failed.
   - A call that went to a permission decision, from you or from auto mode's classifier, keeps its time apart, as "with approval", because Claude Code does not report when the decision ends. Tool time, p50, p95, and the slowest calls leave these calls out. In auto mode most calls that write go to the classifier, so most of their time shows as "with approval".
   - A command sent to the background, a background subagent, a workflow, or a monitor with a timeout is timed until its notification says it ended. The Tools line shows how many still run, and how many failed or were stopped. A background task that a subagent starts reports to that subagent, so Pulse does not time it.
 - **Files**: the files that Edit, Write, MultiEdit, and NotebookEdit changed, most edited first.
 - **Models**: turns, average time, and tokens for each model that answered, so a `/model` switch shows its own share.
 - **Subagents**: starts, time, tokens, and model for each subagent type.
-- **History**: cost per day for the last 14 days across all sessions, with today and 7-day totals.
+- **History**: cost per day for the last 14 days across all sessions, with today and 7-day totals. Each session keeps its own record of what it spent, so sessions that run at the same time never overwrite each other. Other sessions' spend shows after this session's next turn.
 
 On desktop, VS Code, and mobile the charts are SVG with hover tooltips. The terminal gets block-character bars and sparklines.
 

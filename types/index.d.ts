@@ -87,7 +87,6 @@ export type RateStart = { at: number; pct: number; resetsAt?: string }
 export type Metrics = {
   mainTurns: number
   agentTurns: number
-  abortedTurns: number
   inputTokens: number
   outputTokens: number
   cacheReadTokens: number
@@ -120,8 +119,6 @@ export type Metrics = {
   commands?: Record<string, number>
   /** Time between main turns, each gap capped at 30 minutes. */
   idleMs?: number
-  /** Main turn time counted from the same load as idleMs, so the Activity split compares like with like. */
-  workMs?: number
   lastEndedAt?: number
   slowest?: SlowCall[]
   /** Edits per file path by Edit, Write, MultiEdit, and NotebookEdit. */
@@ -138,6 +135,12 @@ export type Metrics = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'pulse': { metrics: Shaped<Metrics> }
+    'pulse': {
+      metrics: Shaped<Metrics>
+      /** Spend per local day across every session, read from the store's cost keys. */
+      costs: Record<string, number>
+      /** Counts the running turn's ticks; the pane reads it, so a tick redraws the pane and nothing else. */
+      tick: number
+    }
   }
 }

@@ -1,25 +1,16 @@
 import { expect, test } from 'claude-code/testing'
 
-type On = Parameters<Extract<Parameters<typeof test>[1], (...args: never[]) => unknown>>[1]
-
-const PANE = {
-  plugin: 'pulse',
-  component: 'Pane',
-  requestId: 'pulse',
-  props: { title: 'Pulse', isFocused: false, bodyColumns: 40, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} },
-} as const
-
-const HINT = { plugin: 'pulse', component: 'PromptHint', props: { isDraft: false, isWorking: false, hint: '? for shortcuts' } } as const
+import { HINT, PANE, memoryStore } from './kit'
+import type { On } from './kit'
 
 const SECRET = 'sk-SECRET-42'
 
 // The engine answers that work; `store` is what Pulse keeps between sessions.
 const world = (on: On, entries: Record<string, unknown> = {}) => {
-  const store = new Map<string, unknown>(Object.entries(entries))
+  const store = memoryStore(on, entries)
   let now = 1_000
   on('command.register', () => ({ value: { command: 'pulse' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
-  on('ui.invalidate', () => ({ value: undefined }))
   on('clock.every', () => ({ value: undefined }))
   on('clock.now', () => ({ value: (now += 100) }))
   on('session.id', () => ({ value: 'abc' }))
@@ -28,15 +19,6 @@ const world = (on: On, entries: Record<string, unknown> = {}) => {
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
   on('tool.call', () => ({ result: {} }))
-  on('store.get', (_, e) => ({ value: store.get(e.key) }))
-  on('store.set', (_, e) => {
-    store.set(e.key, JSON.parse(JSON.stringify(e.value)))
-    return { value: undefined }
-  })
-  on('store.delete', (_, e) => {
-    store.delete(e.key)
-    return { value: undefined }
-  })
   return { store }
 }
 
@@ -90,7 +72,7 @@ test('with every engine call Pulse makes failing, each event still passes and th
   const down = () => {
     throw new Error('down')
   }
-  for (const call of ['command.register', 'ui.open', 'ui.invalidate', 'clock.every', 'clock.now', 'session.id', 'session.usage', 'store.get', 'store.set', 'store.delete']) {
+  for (const call of ['command.register', 'ui.open', 'clock.every', 'clock.now', 'session.id', 'session.usage', 'store.get', 'store.set', 'store.delete', 'store.keys']) {
     on(call as 'clock.now', down)
   }
   on('session.start', (_, e) => ({ cwd: e.cwd }))

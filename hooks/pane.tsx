@@ -3,6 +3,7 @@ import type { BoxProps, ElementConstructor, RenderElement, SessionUsage, SvgProp
 import type { Metrics } from '../types'
 import {
   HEX,
+  THEME,
   blockBar,
   fmtMs,
   fmtNum,
@@ -12,6 +13,7 @@ import {
   level,
   modelLabel,
   modelsSvg,
+  plural,
   sparkline,
   stackSvg,
   toolLabel,
@@ -44,14 +46,15 @@ export type PaneData = {
   live: LiveTurn | null
 }
 
-const THEME = { ok: 'success', warn: 'warning', bad: 'error' } as const
 // A remote surface counts cells in its code font; about 7px each keeps a chart inside the body.
 const PX_PER_CELL = 7
 
 export const drawPane = ({ Box, Text, Svg }: Kit, { m, usage, now, daily, elapsedMs, columns, rows, live }: PaneData): RenderElement => {
   const px = Math.max(220, Math.min(720, Math.floor(columns * PX_PER_CELL) - 4))
   const cells = Math.max(16, columns - 2)
-  const ctxPct = usage.context.percent ?? 0
+  // Unknown until the first response of a fresh or just-compacted window: drawn as '-' with an empty meter, not as a safe 0%.
+  const ctxKnown = usage.context.percent
+  const ctxPct = ctxKnown ?? 0
   const ctxLevel = level(ctxPct)
   const avgMs = m.mainTurns > 0 ? m.turnMsTotal / m.mainTurns : 0
   // A tool whose every call was refused ran no call, so it gets no row; the Tools line counts its refusals.
@@ -140,12 +143,14 @@ export const drawPane = ({ Box, Text, Svg }: Kit, { m, usage, now, daily, elapse
             {usage.context.tokens !== undefined ? fmtNum(usage.context.tokens) : '-'} / {fmtNum(usage.context.window)}
             {'  '}
           </Text>
-          <Text weight="semibold" color={ctxLevel === 'ok' ? undefined : THEME[ctxLevel]}>
-            {ctxPct}%
+          <Text weight="semibold" color={ctxKnown === undefined || ctxLevel === 'ok' ? undefined : THEME[ctxLevel]}>
+            {ctxKnown === undefined ? '-' : `${ctxPct}%`}
           </Text>
         </Text>,
         [
-          Svg ? chart(gaugeSvg(px, ctxPct), `Context ${ctxPct}% full`, false) : termBar(ctxPct / 100, THEME[ctxLevel]),
+          Svg
+            ? chart(gaugeSvg(px, ctxPct), ctxKnown === undefined ? 'Context fill not known yet' : `Context ${ctxPct}% full`, false)
+            : termBar(ctxPct / 100, ctxKnown === undefined ? 'suggestion' : THEME[ctxLevel]),
           Svg && m.turns.some(t => t.contextPct !== null) ? chart(contextSvg(px, m.turns, firstTurn, compactions, live !== null), 'Context fill per turn') : null,
         ],
       )}
@@ -159,13 +164,13 @@ export const drawPane = ({ Box, Text, Svg }: Kit, { m, usage, now, daily, elapse
             </Text>
             <Text dimColor>
               {' '}
-              · {live.toolCalls} tool {live.toolCalls === 1 ? 'call' : 'calls'}
+              · {plural(live.toolCalls, 'tool call')}
             </Text>
           </Text>
         ) : m.mainTurns === 0 ? (
           'none yet'
         ) : (
-          `${m.mainTurns} ${m.mainTurns === 1 ? 'turn' : 'turns'}${m.agentTurns > 0 ? ` + ${m.agentTurns} subagent` : ''} · avg ${fmtMs(avgMs)} · max ${fmtMs(m.longestTurnMs)}`
+          `${plural(m.mainTurns, 'turn')}${m.agentTurns > 0 ? ` + ${m.agentTurns} subagent` : ''} · avg ${fmtMs(avgMs)} · max ${fmtMs(m.longestTurnMs)}`
         ),
         [
           Svg ? (
@@ -244,14 +249,14 @@ export const drawPane = ({ Box, Text, Svg }: Kit, { m, usage, now, daily, elapse
       {models.length > 0 &&
         section(
           'Models',
-          `${models.length} ${models.length === 1 ? 'model' : 'models'}`,
+          plural(models.length, 'model'),
           Svg
             ? chart(modelsSvg(px, models), `Tokens per model, ${models.length} models`)!
             : models.map(([id, s]) => (
                 <Text>
                   <Text dimColor>{modelLabel(id).slice(0, 13).padEnd(14)}</Text>
                   <Text tabular>
-                    {s.turns} {s.turns === 1 ? 'turn' : 'turns'} · {fmtNum(s.outputTokens)} out
+                    {plural(s.turns, 'turn')} · {fmtNum(s.outputTokens)} out
                     {s.mainTurns > 0 ? ` · avg ${fmtMs(s.ms / s.mainTurns)}` : ''}
                   </Text>
                 </Text>

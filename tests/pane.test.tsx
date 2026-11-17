@@ -1,20 +1,9 @@
 import { expect, test } from 'claude-code/testing'
 
+import { SHAPE } from '../hooks/state'
 import { VERSION } from '../hooks/version'
-
-const PANE = {
-  plugin: 'pulse',
-  component: 'Pane',
-  requestId: 'pulse',
-  props: {
-    title: 'Pulse',
-    isFocused: false,
-    bodyColumns: 40,
-    placement: 'dock',
-    scroll: { offset: 0, bodyRows: 30 },
-    view: {},
-  },
-} as const
+import { HINT, PANE, memoryStore } from './kit'
+import type { On } from './kit'
 
 test('the pane title carries the version, so the person sees which Pulse runs', async ($, on) => {
   const titles: (string | undefined)[] = []
@@ -83,7 +72,6 @@ test('the prompt hint carries the summary with no plugin label', async ($, on) =
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await $.tool.call({ tool: 'Bash', command: 'ls' })
 
-  const HINT = { plugin: 'pulse', component: 'PromptHint', props: { isDraft: false, isWorking: false, hint: '? for shortcuts' } } as const
   const desktop = await $.ui.mount({ ...HINT, surface: 'desktop' })
   expect(await desktop.find({ type: 'Text', text: '? for shortcuts' })).toBeDefined()
   expect(await desktop.find({ type: 'Text', text: '■ ctx 85% · $1.50 · 1 tools' })).toBeDefined()
@@ -96,14 +84,9 @@ test('the prompt hint carries the summary with no plugin label', async ($, on) =
 
 test('a running turn ticks once a second and stops when it ends', async ($, on) => {
   const periods: number[] = []
-  let invalidations = 0
   on('command.register', () => ({ value: { command: 'pulse' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.status', () => ({ value: undefined }))
-  on('ui.invalidate', () => {
-    invalidations += 1
-    return { value: undefined }
-  })
   on('clock.every', (_, e) => {
     periods.push(e.ms)
     return { value: undefined }
@@ -118,7 +101,6 @@ test('a running turn ticks once a second and stops when it ends', async ($, on) 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await $.turn.start({ text: 'hi', turnId: 't1' })
   expect(periods).toEqual([1000])
-  expect(invalidations).toBeGreaterThan(0)
 
   now = 22_400
   const running = await $.ui.mount({ ...PANE, surface: 'desktop' })
@@ -136,7 +118,6 @@ test('each model gets its own row of turns and tokens', async ($, on) => {
   on('command.register', () => ({ value: { command: 'pulse' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.status', () => ({ value: undefined }))
-  on('ui.invalidate', () => ({ value: undefined }))
   on('clock.every', () => ({ value: undefined }))
   on('clock.now', () => ({ value: 1_000 }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
@@ -171,12 +152,11 @@ test('each model gets its own row of turns and tokens', async ($, on) => {
 })
 
 // The store and session id the persistence tests share; each test gets its own copy.
-const world = (on: Parameters<Extract<Parameters<typeof test>[1], (...args: never[]) => unknown>>[1], entries: Record<string, unknown> = {}) => {
-  const store = new Map<string, unknown>(Object.entries(entries))
+const world = (on: On, entries: Record<string, unknown> = {}) => {
+  const store = memoryStore(on, entries)
   const ids = { current: 'abc' }
   on('command.register', () => ({ value: { command: 'pulse' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
-  on('ui.invalidate', () => ({ value: undefined }))
   on('clock.every', () => ({ value: undefined }))
   on('clock.now', () => ({ value: 5_000 }))
   on('session.id', () => ({ value: ids.current }))
@@ -184,23 +164,14 @@ const world = (on: Parameters<Extract<Parameters<typeof test>[1], (...args: neve
   on('session.usage', () => ({ value: { startedAt: 0, context: { tokens: 1_000, window: 200_000, percent: 1 }, rateLimits: [], cost: { usd: 0.5 } } }))
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
-  on('store.get', (_, e) => ({ value: store.get(e.key) }))
-  on('store.set', (_, e) => {
-    store.set(e.key, JSON.parse(JSON.stringify(e.value)))
-    return { value: undefined }
-  })
-  on('store.delete', (_, e) => {
-    store.delete(e.key)
-    return { value: undefined }
-  })
   return { store, ids }
 }
 
 const saved = (mainTurns: number) => ({
-  shape: 'metrics-4',
+  shape: SHAPE,
   savedAt: 1,
   metrics: {
-    mainTurns, agentTurns: 0, abortedTurns: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+    mainTurns, agentTurns: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
     turnMsTotal: mainTurns * 3_000, lastTurnMs: 3_000, longestTurnMs: 3_000, toolCalls: 0, toolErrors: 0, toolMsTotal: 0,
     byTool: {}, models: {}, pluginCalls: {}, turns: [], lastCostUsd: 0.4,
   },

@@ -64,6 +64,7 @@ test('screenshot session', async ($, on) => {
     store.delete(e.key)
     return { value: undefined }
   })
+  on('store.keys', () => ({ value: [...store.keys()] }))
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const calls = [

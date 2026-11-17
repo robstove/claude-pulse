@@ -1,8 +1,8 @@
 import type { BoxProps, ElementConstructor, RenderElement, SvgProps, TextProps } from 'claude-code'
 
 import type { Metrics } from '../types'
-import { HEX, fmtMs, fmtNum, fmtUsd, level, modelLabel, sparkline, stackSvg, toolLabel } from './charts'
-import { WINDOW_MS, lastDays } from './derive'
+import { HEX, THEME, fmtMs, fmtNum, fmtUsd, level, modelLabel, plural, sparkline, stackSvg, toolLabel } from './charts'
+import { WINDOW_MS, lastDays, shortPath } from './derive'
 import type { Pace } from './derive'
 import { historySvg, limitsSvg } from './meters'
 
@@ -19,12 +19,8 @@ export type Ui = {
   termBar: (frac: number, color: string, width?: number) => RenderElement
 }
 
-const THEME = { ok: 'success', warn: 'warning', bad: 'error' } as const
 // The cells of a terminal Limits row before its bar.
 const LABEL = 8
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
-// The last two path segments say which file without a long absolute path.
-const shortPath = (p: string) => p.split(/[\\/]/).filter(Boolean).slice(-2).join('/')
 
 const caption = ({ Text }: Ui, text: string, color?: TextProps['color']) => (
   <Text size="caption" dimColor={color === undefined} color={color} tabular>
@@ -75,7 +71,8 @@ export const limitsSection = (ui: Ui, paces: readonly Pace[]): RenderElement | n
 }
 
 export const activitySection = (ui: Ui, m: Metrics): RenderElement | null => {
-  const claude = m.workMs ?? 0
+  // Both counts start when Pulse first loads in the session, so the split compares like with like.
+  const claude = m.turnMsTotal
   const you = m.idleMs ?? 0
   const prompts = m.prompts ?? 0
   if (claude + you === 0 && prompts === 0) return null

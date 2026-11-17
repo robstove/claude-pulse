@@ -5,8 +5,8 @@ call $.session.id
 call $.session.usage
 call $.store.delete
 call $.store.get
+call $.store.keys
 call $.store.set
-call $.ui.invalidate
 call $.ui.open
 call $.ui.resolve
 hook agent.spawn

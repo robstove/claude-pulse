@@ -5,7 +5,6 @@ export const MAX_TURNS = 48
 export const EMPTY: Metrics = {
   mainTurns: 0,
   agentTurns: 0,
-  abortedTurns: 0,
   inputTokens: 0,
   outputTokens: 0,
   cacheReadTokens: 0,

@@ -1,24 +1,25 @@
 import { expect, test } from 'claude-code/testing'
 
-type On = Parameters<Extract<Parameters<typeof test>[1], (...args: never[]) => unknown>>[1]
+import { HINT, PANE, memoryStore } from './kit'
+import type { Dollar, On } from './kit'
 
-const PANE = {
-  plugin: 'pulse',
-  component: 'Pane',
-  requestId: 'pulse',
-  props: { title: 'Pulse', isFocused: false, bodyColumns: 40, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} },
-} as const
-
-const HINT = { plugin: 'pulse', component: 'PromptHint', props: { isDraft: false, isWorking: false, hint: '' } } as const
+// The engine's words for a no at the permission dialog.
+const NO = "The user doesn't want to proceed with this tool use."
 
 // A clock the test moves, and a store; `tool.call` answers from `answers` by tool name. tool.check asks for the tools in `asks`,
-// holding each for 5 s as a person would, and refuses those in `denies`, as a permission rule does.
-const world = (on: On, answers: Record<string, unknown> = {}, asks: readonly string[] = [], denies: readonly string[] = []) => {
+// holding each for 5 s as a person would, and refuses those in `denies`, as a permission rule does. An ask is approved, except
+// for the tools in `rejects`, which the person refuses at the dialog.
+const world = (
+  on: On,
+  answers: Record<string, unknown> = {},
+  asks: readonly string[] = [],
+  denies: readonly string[] = [],
+  rejects: readonly string[] = [],
+) => {
   const clock = { now: 10_000 }
-  const store = new Map<string, unknown>()
+  memoryStore(on)
   on('command.register', () => ({ value: { command: 'pulse' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
-  on('ui.invalidate', () => ({ value: undefined }))
   on('clock.every', () => ({ value: undefined }))
   on('clock.now', () => ({ value: clock.now }))
   on('session.id', () => ({ value: 'abc' }))
@@ -33,23 +34,17 @@ const world = (on: On, answers: Record<string, unknown> = {}, asks: readonly str
     clock.now += 5_000
     return { decision: 'ask' }
   })
+  on('classic.PermissionRequest', (_, e) =>
+    rejects.includes(e.tool_name) ? { decision: { behavior: 'deny', message: NO } } : { decision: { behavior: 'allow' } },
+  )
   on('tool.call', (_, e) => {
     clock.now += 3_000
     return (answers[e.tool] ?? { result: {} }) as never
   })
-  on('store.get', (_, e) => ({ value: store.get(e.key) }))
-  on('store.set', (_, e) => {
-    store.set(e.key, JSON.parse(JSON.stringify(e.value)))
-    return { value: undefined }
-  })
-  on('store.delete', (_, e) => {
-    store.delete(e.key)
-    return { value: undefined }
-  })
   return { clock }
 }
 
-const hintLine = async ($: Parameters<Extract<Parameters<typeof test>[1], (...args: never[]) => unknown>>[0]) => {
+const hintLine = async ($: Dollar) => {
   const ui = await $.ui.mount({ ...HINT, surface: 'desktop' })
   const line = (await ui.find({ type: 'Text', text: /ctx/ }))?.text
   await ui.unmount()
@@ -86,17 +81,26 @@ test('a tool error is still an error', async ($, on) => {
 })
 
 test('a call put to a decider counts with no time, so the wait for approval is no tool time', async ($, on) => {
-  // The kit has no person to answer an ask, so the asked call ends in an error; its time stays out all the same.
   world(on, {}, ['Bash'])
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await $.tool.call({ tool: 'Bash', command: 'git push', tool_use_id: 'u1' })
   await $.tool.call({ tool: 'Read', file_path: '/a.ts', tool_use_id: 'u2' })
 
+  // The approved call held 5 s for the decision and ran 3 s: all 8 s are wait, and tool time holds only the Read.
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /^2 calls · 3s/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: / · 1 with approval 5s/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: / · 1 with approval 8s/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /failed/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /^Bash +1× approval$/ })).toBeDefined()
   await ui.unmount()
+})
+
+test('a no at the permission dialog counts as refused, not as failed', async ($, on) => {
+  world(on, {}, ['Bash'], [], ['Bash'])
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.tool.call({ tool: 'Bash', command: 'git push --force', tool_use_id: 'u1' })
+
+  expect(await hintLine($)).toContain('1 tools (1 refused)')
 })
 
 test('a background task is timed to its notification, which is no prompt of the person', async ($, on) => {
