@@ -22,6 +22,10 @@ Live session metrics for Claude Code. Pulse tracks each session with hooks and s
 
 On desktop, VS Code, and mobile the charts are SVG with hover tooltips. The terminal gets block-character bars and sparklines.
 
+## Requirements
+
+Pulse is a Claude Code plugin with a hooks module. That plugin API is in early access, and a Claude Code release can change it. CI tests Pulse on Claude Code 2.1.325. If a later release changes the API, the pane can stay empty; update Pulse, or report the release in an issue.
+
 ## Install
 
 At the prompt of a terminal session:
@@ -67,9 +71,12 @@ Set them with `claude plugin configure pulse`, then start a new session.
 claude plugin validate .
 claude plugin test .
 node scripts/check-surface.mjs
+node scripts/check-version.mjs
 ```
 
-`scripts/check-surface.mjs` lists each event Pulse hooks and each engine call it makes. It fails when the list differs from `scripts/surface.txt`, so a new hook or call shows in the pull request. A call that reaches outside the session (`$.fs`, `$.process`, `$.model`, `fetch`) fails it whatever the file says. Run it with `--write` after an intended change. CI runs all three checks on Claude Code 2.1.325.
+`scripts/check-surface.mjs` lists each event Pulse hooks and each engine call it makes. It fails when the list differs from `scripts/surface.txt`, so a new hook or call shows in the pull request. A call that reaches outside the session (`$.fs`, `$.process`, `$.model`, `fetch`) fails it whatever the file says. Run it with `--write` after an intended change.
+
+`scripts/check-version.mjs` fails when the version in `hooks/version.ts`, which the pane title shows, differs from the one in `.claude-plugin/plugin.json`. Change both when you raise the version. CI runs all four checks on Claude Code 2.1.325.
 
 The screenshot at the top shows a made-up session, `scripts/screenshot/pane.shot.tsx`, drawn by `node scripts/screenshot.mjs`. The script lays out the pane's drawn tree as HTML and saves it with Playwright, so spacing and fonts are close to the app, not exact. After a push to `main` that changes `hooks/`, `types/`, or the script, CI draws it again and commits it when the picture changed. To draw it locally, install `playwright` with `npm install --no-save`; set `PULSE_BROWSER=msedge` or `chrome` to use an installed browser in place of Playwright's Chromium.
 
