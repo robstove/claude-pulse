@@ -12,12 +12,15 @@ export const taskOf = (result: unknown): string | undefined => {
   return idOf(r.backgroundTaskId) ?? (typeof r.timeoutMs === 'number' && r.timeoutMs > 0 ? idOf(r.taskId) : undefined)
 }
 
-/** A task notification, read for the task id and whether it failed; its summary and output are never read. No end: the task goes on. */
-export const taskNotice = (text: string): { id: string; ended?: 'ok' | 'failed' } | undefined => {
+export type TaskEnd = 'ok' | 'failed' | 'stopped'
+
+/** A task notification, read for the task id and how it ended; its summary and output are never read. No end: the task goes on. */
+export const taskNotice = (text: string): { id: string; ended?: TaskEnd } | undefined => {
   if (!text.trimStart().startsWith('<task-notification>')) return undefined
   const id = /<task-id>([\w-]{1,64})<\/task-id>/.exec(text)?.[1]
   if (id === undefined) return undefined
-  const status = /<status>(\w+)<\/status>/.exec(text)?.[1]
+  const status = /<status>([^<]{1,32})<\/status>/.exec(text)?.[1]
   if (status === undefined) return { id }
-  return { id, ended: status === 'failed' ? 'failed' : 'ok' }
+  // `killed` is a stop by the person or by Claude, not a failure and not a success.
+  return { id, ended: status === 'failed' ? 'failed' : status === 'killed' ? 'stopped' : 'ok' }
 }

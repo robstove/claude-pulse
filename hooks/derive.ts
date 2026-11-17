@@ -19,6 +19,10 @@ export const percentile = (xs: readonly number[], p: number): number => {
   return s[Math.max(0, Math.ceil(p * s.length) - 1)] ?? 0
 }
 
+// A later reset time names a new window; a minute of slack keeps a recomputed time from looking like a reset.
+const isNewWindow = (held: string | undefined, read: string | undefined): boolean =>
+  held !== undefined && read !== undefined && Date.parse(read) - Date.parse(held) > 60_000
+
 /** Keeps the first reading of each window, and starts it again when the window resets. */
 export const nextRateStart = (
   held: Record<string, RateStart> | undefined,
@@ -28,10 +32,18 @@ export const nextRateStart = (
   const out = { ...(held ?? {}) }
   for (const l of limits) {
     const s = out[l.kind]
-    if (s === undefined || l.percentUsed < s.pct - 0.5) out[l.kind] = { at: now, pct: l.percentUsed }
+    // Other sessions fill the same account window, so a reset can pass with no drop in the fill this session reads.
+    if (s === undefined || isNewWindow(s.resetsAt, l.resetsAt) || l.percentUsed < s.pct - 0.5) {
+      out[l.kind] = { at: now, pct: l.percentUsed, resetsAt: l.resetsAt }
+    } else if (s.resetsAt === undefined && l.resetsAt !== undefined) {
+      out[l.kind] = { ...s, resetsAt: l.resetsAt }
+    }
   }
   return out
 }
+
+/** How long each known window runs, so a window with no reset time still has a bound for its warning. */
+export const WINDOW_MS: Readonly<Record<string, number>> = { five_hour: 5 * HOUR, seven_day: 7 * 24 * HOUR }
 
 export type Pace = {
   kind: string
@@ -40,7 +52,7 @@ export type Pace = {
   resetsInMs: number | null
   /** Points of the window used per hour since the first reading; null until PACE_MIN_MS of history. */
   perHour: number | null
-  /** Time to 100% at that pace; null when the pace is flat or unknown. */
+  /** Time to 100% at that pace, 0 once the window is full; null when the pace is flat or unknown. */
   fullInMs: number | null
   /** The fill at reset if the pace holds. */
   atResetPct: number | null
@@ -60,7 +72,8 @@ export const paceOf = (l: SessionRateLimit, start: RateStart | undefined, now: n
     pct: l.percentUsed,
     resetsInMs,
     perHour,
-    fullInMs: perHour !== null && perHour > 0 ? ((100 - l.percentUsed) / perHour) * HOUR : null,
+    // A spend limit can pass 100%; a full window has no time left, not a negative one.
+    fullInMs: perHour !== null && perHour > 0 ? (Math.max(0, 100 - l.percentUsed) / perHour) * HOUR : null,
     atResetPct: perHour !== null && resetsInMs !== null ? l.percentUsed + (perHour * resetsInMs) / HOUR : null,
   }
 }
@@ -71,10 +84,11 @@ const cut = (s: string): string => (s.length > 80 ? `${s.slice(0, 79)}…` : s)
 const commandName =(command: string): string => {
   // A leading `cd <dir> &&` names only where the command ran.
   const line = (command.trim().split('\n')[0] ?? '').replace(/^(cd\s+("[^"]*"|'[^']*'|\S+)\s*(&&|;)\s*)+/, '')
-  const words = line.match(/"[^"]*"|'[^']*'|\S+/g) ?? []
+  // A shell word joins its quoted parts, so `A="x y"` stays one word; an unclosed quote runs to the end of the line.
+  const words = line.match(/(?:"[^"]*(?:"|$)|'[^']*(?:'|$)|[^\s"'])+/g) ?? []
   // An assignment before the program can carry a token, so it never reaches the label.
   const program = words.find(w => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) ?? ''
-  return program.replace(/^["']|["']$/g, '').split(/[\\/]/).pop() ?? ''
+  return program.replace(/["']/g, '').split(/[\\/]/).pop() ?? ''
 }
 
 /** The host of an address, without login, path, or query; empty when the text is not an address. */

@@ -1,5 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
+import { SHAPE } from '../hooks/state'
+
 const PANE = {
   plugin: 'pulse',
   component: 'Pane',
@@ -169,9 +171,9 @@ test('interrupted turns show in red under the turns chart', async ($, on) => {
 
 test('the activity split counts only turns timed with the gaps, not turns from before', async ($, on) => {
   const { state, store } = engine(on)
-  // A save from before 0.2.0: 30s of turn time and no gap counter.
+  // A save with 30s of turn time and no gap counter, under the current layout so that it loads.
   store.set('session:abc', {
-    shape: 'metrics-3',
+    shape: SHAPE,
     savedAt: 1,
     metrics: {
       mainTurns: 3, agentTurns: 0, abortedTurns: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
@@ -188,5 +190,139 @@ test('the activity split counts only turns timed with the gaps, not turns from b
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: 'Claude 40% · you 60%' })).toBeDefined()
+  await ui.unmount()
+})
+
+const turn = async ($: Parameters<Extract<Parameters<typeof test>[1], (...args: never[]) => unknown>>[0], id: string) => {
+  await $.turn.start({ text: 'hi', turnId: id })
+  await $.turn.complete({ answer: '', durationMs: 1_000, isAborted: false, turnId: id, reason: 'answer' })
+}
+
+test("a subagent's own compaction is not a compaction of the main conversation", async ($, on) => {
+  engine(on)
+  on('session.compact', () => ({ messages: [SUMMARY], tokensBefore: 150_000, tokensAfter: 20_000 }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await turn($, 't1')
+  await $.session.compact({ trigger: 'auto', messages: [SUMMARY, SUMMARY], agentId: 'a1' })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /compacted/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a prompt that a hook dropped is not counted', async ($, on) => {
+  engine(on)
+  on('prompt.submit', () => ({ drop: 'blocked by a settings hook' }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.prompt.submit({ text: 'hi', wait: false, origin: { kind: 'composer' } })
+  await turn($, 't1')
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /^0 prompts/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('before the first turn ends, Activity shows the prompts and no split', async ($, on) => {
+  engine(on)
+  on('prompt.submit', (_, e) => ({ text: e.text }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.prompt.submit({ text: 'hi', wait: false, origin: { kind: 'composer' } })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: 'no turn ended yet' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Claude 0%/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a new reset time starts the pace again, though the fill did not drop', async ($, on) => {
+  const { state } = engine(on)
+  const start = state.now
+  const first = new Date(start + 3_600_000).toISOString()
+  const second = new Date(start + 6 * 3_600_000).toISOString()
+  state.limits = [{ kind: 'five_hour', percentUsed: 10, resetsAt: first }]
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await turn($, 't1')
+  // The window reset, and other sessions filled the new one to 30% before this session read it again.
+  state.now = start + 70 * 60_000
+  state.limits = [{ kind: 'five_hour', percentUsed: 30, resetsAt: second }]
+  await turn($, 't2')
+  state.now = start + 90 * 60_000
+  state.limits = [{ kind: 'five_hour', percentUsed: 40, resetsAt: second }]
+  await turn($, 't3')
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /^5-hour: resets in .* · \+30\.0 pts\/h/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a spend limit past 100% reads as full, and a window with no reset time warns only inside its length', async ($, on) => {
+  const { state } = engine(on)
+  const start = state.now
+  state.limits = [
+    { kind: 'spend_limit', percentUsed: 50, resetsAt: new Date(start + 3 * 3_600_000).toISOString() },
+    { kind: 'five_hour', percentUsed: 5 },
+  ]
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await turn($, 't1')
+  state.now = start + 60 * 60_000
+  state.limits = [
+    { kind: 'spend_limit', percentUsed: 105, resetsAt: new Date(start + 3 * 3_600_000).toISOString() },
+    { kind: 'five_hour', percentUsed: 6 },
+  ]
+  await turn($, 't2')
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: 'Spend full' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /-\d+ms/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /5-hour full/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test("after a resume, a turn's cost comes from this process's ledger, not the saved total", async ($, on) => {
+  const { state, store } = engine(on)
+  store.set('session:abc', {
+    shape: SHAPE,
+    savedAt: 1,
+    metrics: {
+      mainTurns: 1, agentTurns: 0, abortedTurns: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+      turnMsTotal: 1_000, lastTurnMs: 1_000, longestTurnMs: 1_000, toolCalls: 0, toolErrors: 0, toolMsTotal: 0,
+      byTool: {}, models: {}, pluginCalls: {}, turns: [], lastCostUsd: 12.3,
+    },
+  })
+  state.cost = 0.5
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.turn.start({ text: 'hi', turnId: 't1' })
+  state.cost = 0.8
+  await $.turn.complete({ answer: '', durationMs: 1_000, isAborted: false, turnId: 't1', reason: 'answer' })
+
+  const daily = store.get('daily') as Record<string, number>
+  expect(Math.abs((Object.values(daily)[0] ?? 0) - 0.3) < 1e-9).toBe(true)
+})
+
+test('the session end saves what changed after the last turn, and its cost', async ($, on) => {
+  const { state, store } = engine(on)
+  on('prompt.submit', (_, e) => ({ text: e.text }))
+  on('session.end', () => ({ sessionId: 'abc' }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await turn($, 't1')
+  await $.prompt.submit({ text: '/compact', command: { name: 'compact', args: '' }, wait: false, origin: { kind: 'composer' } })
+  state.cost = 0.7
+  await $.session.end({ reason: 'prompt_input_exit', sessionId: 'abc', resume: { id: 'abc' } })
+
+  const saved = store.get('session:abc') as { metrics: { prompts?: number } }
+  expect(saved.metrics.prompts).toBe(1)
+  const daily = store.get('daily') as Record<string, number>
+  expect(Math.abs((Object.values(daily)[0] ?? 0) - 0.2) < 1e-9).toBe(true)
+})
+
+test('on the terminal a Limits row fits the pane: the label and the bar fill the cells together', async ($, on) => {
+  const { state } = engine(on)
+  state.limits = [{ kind: 'five_hour', percentUsed: 30 }]
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await turn($, 't1')
+
+  // A body of 40 columns gives 38 cells: an 8-cell label and a 30-cell bar.
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^5-hour  [█░]{30}$/ })).toBeDefined()
   await ui.unmount()
 })

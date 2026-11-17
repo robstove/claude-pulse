@@ -1,6 +1,7 @@
 import type { Compaction, TurnRecord } from '../types'
 import { HEX, fmtMs, fmtUsd, level } from './charts'
 import type { Pace } from './derive'
+import { levels } from './state'
 
 const FONT = 'font-family="system-ui,-apple-system,Segoe UI,sans-serif"'
 
@@ -40,7 +41,7 @@ export const limitsSvg = (w: number, paces: readonly Pace[]): string => {
   return svg(w, Math.max(rowH, paces.length * rowH), rows.join(''))
 }
 
-/** Context fill after each turn on the turns chart's columns, with guides at 60% and 80% and a purple rule where a compaction ran. */
+/** Context fill after each turn on the turns chart's columns, with guides at the amber and red levels and a purple rule where a compaction ran. */
 export const contextSvg = (w: number, turns: readonly TurnRecord[], firstTurn: number, compactions: readonly Compaction[], hasLive: boolean): string => {
   const gutter = 34
   const h = 30
@@ -74,8 +75,8 @@ export const contextSvg = (w: number, turns: readonly TurnRecord[], firstTurn: n
     w,
     h,
     `<text x="0" y="${h - 2}" fill="${HEX.muted}" font-size="10" ${FONT}>Fill</text>` +
-      guide(60) +
-      guide(80) +
+      guide(levels.warnAt) +
+      guide(levels.alertAt) +
       marks.join('') +
       (pts.length > 1 ? `<polyline points="${pts.join(' ')}" fill="none" stroke="${HEX.accent}" stroke-width="1.5" stroke-linejoin="round"/>` : '') +
       dots.join(''),

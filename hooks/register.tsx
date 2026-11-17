@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, TurnUsage } from 'claude-code'
 
-import type { AgentStat, ModelStat, TurnRecord } from '../types'
+import type { AgentStat, Metrics, ModelStat, TurnRecord } from '../types'
 import { IDLE_CAP_MS, dayKey, nextRateStart } from './derive'
 import { observe } from './observe'
 import { drawPane } from './pane'
@@ -51,7 +51,9 @@ const addAgentTurn = (agents: Record<string, AgentStat>, type: string, ms: numbe
   }
 }
 
-// Binds $.state to this session id: keeps a match, adopts a pre-0.1.2 value that has no id, else loads what the store saved.
+// Binds $.state to this session id: keeps a match, keeps figures that built up while a failed load left no id, else loads
+// what the store saved. It runs at session.start and at each main turn.start, because /clear and an in-process resume
+// change the id with no session.start.
 async function adoptSession($: EngineInterface): Promise<void> {
   const id = await $.session.id()
   const m = await read($, metrics)
@@ -61,10 +63,17 @@ async function adoptSession($: EngineInterface): Promise<void> {
     return
   }
   const saved = await loadSession($, id)
-  // A session with no save starts from the cost the ledger holds now, so its first turn has a cost too.
-  const cost = saved ? saved.lastCostUsd : ((await $.session.usage()).cost?.usd ?? null)
+  // The baseline is the ledger of this process, which need not hold what an earlier process saved, so a first turn costs what it spent.
+  const cost = (await quietly(() => $.session.usage()))?.cost?.usd ?? null
   // A saved task's process ended with the process that saved it, and no notification for it will come.
   await update($, metrics, () => ({ ...(saved ?? EMPTY), tasks: {}, lastCostUsd: cost, sessionId: id }))
+}
+
+// The save and the day's cost go apart, so a failed save does not lose the cost: the next save repeats the figures, not the cost.
+async function persist($: EngineInterface, m: Metrics, now: number, cost: number | null): Promise<void> {
+  const id = m.sessionId
+  if (id !== undefined) await quietly(() => saveSession($, id, m))
+  if (cost !== null && cost > 0) await quietly(() => addDailyCost($, dayKey(now), cost))
 }
 
 const redraw = ($: EngineInterface): void => void quietly(() => $.ui.invalidate('ui.render'))
@@ -78,9 +87,26 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     await quietly(() => $.command.register({ name: 'pulse', description: 'Show token, timing, and tool metrics for this session' }))
     void quietly(() => $.ui.open({ id: PANE, title: TITLE }))
-    // The pane starts from what $.state holds when a load fails; the next turn's save tries the store again.
+    // The pane starts from what $.state holds when a load fails; the next main turn tries the load again.
     await quietly(() => dropOtherShapes($))
     await quietly(() => adoptSession($))
+
+    return next(e)
+  })
+
+  // What changed after the last turn (a /compact, a prompt count, spend by a background agent) reaches the store here.
+  on('session.end', async ($, e, next) => {
+    await quietly(async () => {
+      const now = await $.clock.now()
+      const costNow = (await quietly(() => $.session.usage()))?.cost?.usd ?? null
+      const before = (await read($, metrics)).lastCostUsd
+      const spent = costNow !== null && before !== null ? Math.max(0, costNow - before) : null
+      const m = await update($, metrics, held => (costNow === null ? held : { ...held, lastCostUsd: costNow }))
+      await persist($, m, now, spent)
+      // After /clear or an in-process resume the process goes on under another id: the pane empties now,
+      // and the next main turn binds the new id and loads its save.
+      if (e.reason === 'clear' || e.reason === 'resume') await update($, metrics, () => EMPTY)
+    })
 
     return next(e)
   })
@@ -93,6 +119,7 @@ export const register: Register = (on, options) => {
 
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) {
+      await quietly(() => adoptSession($))
       // A notification that wakes an idle session starts a turn; the task it reports on ends here.
       await quietly(() => noteTaskNotice($, e.text))
       live.toolCalls = 0
@@ -134,7 +161,7 @@ export const register: Register = (on, options) => {
       const costNow = s?.cost?.usd ?? null
       const before = (await read($, metrics)).lastCostUsd
       const turnCost = isMain && costNow !== null && before !== null ? Math.max(0, costNow - before) : null
-      await update($, metrics, m => {
+      const saved = await update($, metrics, m => {
         const record: TurnRecord = {
           ms: e.durationMs,
           inputTokens: (u?.input_tokens ?? 0) + (u?.cache_read_input_tokens ?? 0) + (u?.cache_creation_input_tokens ?? 0),
@@ -170,10 +197,7 @@ export const register: Register = (on, options) => {
           rateStart: isMain ? nextRateStart(m.rateStart, s?.rateLimits ?? [], now) : m.rateStart,
         }
       })
-      // A failed save leaves the previous one in the store; the next turn saves again.
-      const saved = await read($, metrics)
-      if (saved.sessionId !== undefined) await saveSession($, saved.sessionId, saved)
-      if (turnCost !== null && turnCost > 0) await addDailyCost($, dayKey(now), turnCost)
+      await persist($, saved, now, turnCost)
     })
 
     return next(e)
@@ -183,7 +207,8 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
     const line = await quietly(async () => statusText(await read($, metrics), await $.session.usage()))
     if (line === undefined) return next(e)
-    if (e.surface === 'terminal') return next({ ...e, props: { ...e.props, tail: `  ${line}` } })
+    // A tail that reaches Pulse came from a plugin above it, so Pulse adds to it.
+    if (e.surface === 'terminal') return next({ ...e, props: { ...e.props, tail: `${e.props.tail ?? ''}  ${line}` } })
     const { Box, Text } = $.ui.resolve(e)
 
     return (

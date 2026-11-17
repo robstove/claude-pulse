@@ -5,6 +5,7 @@ import { FILE_TOOLS, SAMPLES, callLabel, pushSlow } from './derive'
 import { quietly } from './quietly'
 import { EMPTY, SHAPE, live } from './state'
 import { taskNotice, taskOf } from './tasks'
+import type { TaskEnd } from './tasks'
 
 // The state scan reads an atom only where its file declares it, so each file that reads or writes Metrics declares the same one.
 const metrics = atom({ plugin: 'pulse', key: 'metrics' } as const, EMPTY, { shape: SHAPE })
@@ -16,15 +17,17 @@ const MAX_FILES = 100
 const MAX_TASKS = 50
 const MAX_PENDING = 200
 
-// The tool_use_ids that tool.check put to a decider. A call that never reaches tool.call leaves its id, so the oldest goes past MAX_PENDING.
+// The tool_use_ids that tool.check put to a decider, and those it refused. A call that never reaches tool.call leaves its id,
+// so the oldest goes past MAX_PENDING.
 const asked = new Set<string>()
+const denied = new Set<string>()
 
-const markAsked = (id: string): void => {
-  if (asked.size >= MAX_PENDING) asked.delete(asked.values().next().value as string)
-  asked.add(id)
+const mark = (set: Set<string>, id: string): void => {
+  if (set.size >= MAX_PENDING) set.delete(set.values().next().value as string)
+  set.add(id)
 }
 
-async function settleTask($: EngineInterface, id: string, ended: 'ok' | 'failed'): Promise<void> {
+async function settleTask($: EngineInterface, id: string, ended: TaskEnd): Promise<void> {
   await quietly(async () => {
     const now = await $.clock.now()
     await update($, metrics, m => {
@@ -36,27 +39,32 @@ async function settleTask($: EngineInterface, id: string, ended: 'ok' | 'failed'
       return {
         ...m,
         tasks,
-        background: { count: held.count + 1, failed: held.failed + (ended === 'failed' ? 1 : 0), ms: held.ms + ms },
+        background: {
+          count: held.count + 1,
+          failed: held.failed + (ended === 'failed' ? 1 : 0),
+          stopped: (held.stopped ?? 0) + (ended === 'stopped' ? 1 : 0),
+          ms: held.ms + ms,
+        },
         slowest: pushSlow(m.slowest, { tool: task.tool, ms, label: task.label, background: true }),
       }
     })
   })
 }
 
-/** Settles the background task a notification reports on. True when the text is a task notification, so it is no prompt of the person's. */
-export async function noteTaskNotice($: EngineInterface, text: string): Promise<boolean> {
+/** Settles the background task a notification reports on; any other text changes nothing. */
+export async function noteTaskNotice($: EngineInterface, text: string): Promise<void> {
   const notice = taskNotice(text)
-  if (notice === undefined) return false
-  if (notice.ended !== undefined) await settleTask($, notice.id, notice.ended)
-  return true
+  if (notice?.ended !== undefined) await settleTask($, notice.id, notice.ended)
 }
 
 // tool.call's span holds the permission decision. The span of a call that tool.check put to a decider (a person, auto mode's
 // classifier, a host) counts as wait time apart from tool time, because the engine reports no point where the decision ends.
 export function observeTools(on: On): void {
+  // The verdict comes from beneath Pulse: a plugin above that changes it moves that call between tool time and wait time.
   on('tool.check', async ($, e, next) => {
     const verdict = await next(e)
-    if (verdict.decision === 'ask' && e.tool_use_id !== undefined) markAsked(e.tool_use_id)
+    if (e.tool_use_id !== undefined && verdict.decision === 'ask') mark(asked, e.tool_use_id)
+    if (e.tool_use_id !== undefined && verdict.decision === 'deny') mark(denied, e.tool_use_id)
     return verdict
   })
 
@@ -65,8 +73,11 @@ export function observeTools(on: On): void {
     const caller = next.origin.plugin
     if (caller !== 'engine') {
       const ran = await next(e)
-      if (e.tool_use_id !== undefined) asked.delete(e.tool_use_id)
-      await quietly(() => update($, metrics, m => ({ ...m, pluginCalls: { ...m.pluginCalls, [caller]: (m.pluginCalls[caller] ?? 0) + 1 } })))
+      if (e.tool_use_id !== undefined) {
+        asked.delete(e.tool_use_id)
+        denied.delete(e.tool_use_id)
+      }
+      await quietly(() => update($, metrics, m => ({ ...m, pluginCalls: { ...m.pluginCalls, [caller]: (m.pluginCalls?.[caller] ?? 0) + 1 } })))
       return ran
     }
     const started = await quietly(() => $.clock.now())
@@ -74,18 +85,22 @@ export function observeTools(on: On): void {
     const ended = started === undefined ? undefined : await quietly(() => $.clock.now())
     const id = e.tool_use_id
     const wasAsked = id !== undefined && asked.delete(id)
-    // A deny is a refusal: by a rule, a person, or a hook, before the tool ran or after it to withhold its result.
-    // A tool's own failure comes back as a result with isError.
-    const refused = ran.deny !== undefined
-    if (!refused) live.toolCalls += 1
+    const wasDenied = id !== undefined && denied.delete(id)
+    // A rule or a hook refuses through tool.check, and the call comes back as an error; a plugin beneath answers a deny.
+    // A refusal at the permission dialog is an error of an asked call, which Pulse cannot tell from a failure.
+    const refused = ran.deny !== undefined || (wasDenied && ran.isError === true)
+    // The running turn counts the main loop's calls, as its steps do; a subagent's calls are its own.
+    if (!refused && e.agentId === undefined) live.toolCalls += 1
     const span = started === undefined || ended === undefined ? 0 : Math.max(0, ended - started)
     // The tool's own time; null when the span also holds a decider's wait.
     const ms = wasAsked ? null : span
     await quietly(async () => {
-      const failed = !refused && ran.isError === true
+      // A call the person interrupted ends with isError too, but the tool did not fail.
+      const failed = !refused && ran.isError === true && !next.signal.aborted
       const input = e as unknown as Readonly<Record<string, unknown>>
       const label = callLabel(input)
-      const task = refused || failed ? undefined : taskOf(ran.result)
+      // A subagent's task reports its end to that subagent, which Pulse does not hear, so only the main loop's tasks are timed.
+      const task = refused || failed || e.agentId !== undefined ? undefined : taskOf(ran.result)
       // The task starts when its call does, or, after a decider's wait, when the call answers, so the wait stays out.
       const startedAt = task === undefined ? 0 : ((wasAsked ? ended : started) ?? (await $.clock.now()))
       const path = input.file_path ?? input.notebook_path

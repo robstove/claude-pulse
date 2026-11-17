@@ -64,8 +64,8 @@ export type SlowCall = { tool: string; ms: number; label: string; background?: t
 /** A background task still going: a command sent to the background, a background subagent, a workflow, a monitor. */
 export type OpenTask = { tool: string; label: string; startedAt: number }
 
-/** Background tasks that ended, timed from their call to their notification. */
-export type BackgroundStat = { count: number; failed: number; ms: number }
+/** Background tasks that ended, timed from their call to their notification; `stopped` counts those the person or Claude killed. */
+export type BackgroundStat = { count: number; failed: number; stopped?: number; ms: number }
 
 /** Model requests across all loops. */
 export type StepStats = {
@@ -81,8 +81,8 @@ export type StepStats = {
   effort?: string
 }
 
-/** The first reading of a rate-limit window in this session, or after the window reset. */
-export type RateStart = { at: number; pct: number }
+/** The first reading of a rate-limit window in this session, or after the window reset; `resetsAt` names the window. */
+export type RateStart = { at: number; pct: number; resetsAt?: string }
 
 export type Metrics = {
   mainTurns: number
@@ -102,8 +102,8 @@ export type Metrics = {
   byTool: Record<string, ToolStat>
   /** Optional, so values stored before 0.1.1 still load under the same shape tag. */
   models?: Record<string, ModelStat>
-  /** Calls another plugin made through the tool chain, by plugin name; not the model's. */
-  pluginCalls: Record<string, number>
+  /** Calls another plugin made through the tool chain, by plugin name; not the model's. Absent on values that 0.4.0 saved. */
+  pluginCalls?: Record<string, number>
   turns: TurnRecord[]
   lastCostUsd: number | null
   /** The session these figures belong to; absent on values saved before 0.1.2. */

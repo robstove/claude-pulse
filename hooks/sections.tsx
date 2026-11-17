@@ -2,7 +2,7 @@ import type { BoxProps, ElementConstructor, RenderElement, SvgProps, TextProps }
 
 import type { Metrics } from '../types'
 import { HEX, fmtMs, fmtNum, fmtUsd, level, modelLabel, sparkline, stackSvg, toolLabel } from './charts'
-import { lastDays } from './derive'
+import { WINDOW_MS, lastDays } from './derive'
 import type { Pace } from './derive'
 import { historySvg, limitsSvg } from './meters'
 
@@ -15,10 +15,13 @@ export type Ui = {
   cells: number
   section: (title: string, meta: RenderElement | string, body: RenderElement | (RenderElement | null | false)[]) => RenderElement
   chart: (source: string, alt: string, isInteractive?: boolean) => RenderElement | null
-  termBar: (frac: number, color: string) => RenderElement
+  /** A bar of block characters, `cells` wide unless a row puts a label before it. */
+  termBar: (frac: number, color: string, width?: number) => RenderElement
 }
 
 const THEME = { ok: 'success', warn: 'warning', bad: 'error' } as const
+// The cells of a terminal Limits row before its bar.
+const LABEL = 8
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
 // The last two path segments say which file without a long absolute path.
 const shortPath = (p: string) => p.split(/[\\/]/).filter(Boolean).slice(-2).join('/')
@@ -32,12 +35,15 @@ const caption = ({ Text }: Ui, text: string, color?: TextProps['color']) => (
 export const limitsSection = (ui: Ui, paces: readonly Pace[]): RenderElement | null => {
   if (paces.length === 0) return null
   const { Text } = ui
-  // The window that fills before it resets is the one to warn about.
-  const risk = paces.find(p => p.fullInMs !== null && (p.resetsInMs === null || p.fullInMs < p.resetsInMs))
+  // The window that fills before it resets is the one to warn about; with no reset time, a known window's length bounds it.
+  const risk = paces.find(p => {
+    const left = p.resetsInMs ?? WINDOW_MS[p.kind]
+    return p.fullInMs !== null && left !== undefined && p.fullInMs < left
+  })
   const top = Math.max(...paces.map(p => p.pct))
   const meta = risk ? (
     <Text size="caption" color="error" weight="semibold" tabular>
-      {risk.label} full in ~{fmtMs(risk.fullInMs ?? 0)}
+      {risk.fullInMs !== null && risk.fullInMs > 0 ? `${risk.label} full in ~${fmtMs(risk.fullInMs)}` : `${risk.label} full`}
     </Text>
   ) : (
     <Text size="caption" tabular color={level(top) === 'ok' ? undefined : THEME[level(top)]} dimColor={level(top) === 'ok'}>
@@ -50,9 +56,10 @@ export const limitsSection = (ui: Ui, paces: readonly Pace[]): RenderElement | n
     ) : (
       <ui.Box flexDirection="column">
         {paces.map(p => (
+          // The label and the bar together fill `cells`, so the row does not wrap.
           <Text>
-            <Text dimColor>{p.label.padEnd(8)}</Text>
-            {ui.termBar(p.pct / 100, THEME[level(p.pct)])}
+            <Text dimColor>{p.label.slice(0, LABEL - 1).padEnd(LABEL)}</Text>
+            {ui.termBar(p.pct / 100, THEME[level(p.pct)], Math.max(LABEL, ui.cells - LABEL))}
           </Text>
         ))}
       </ui.Box>
@@ -72,15 +79,17 @@ export const activitySection = (ui: Ui, m: Metrics): RenderElement | null => {
   const you = m.idleMs ?? 0
   const prompts = m.prompts ?? 0
   if (claude + you === 0 && prompts === 0) return null
-  const share = claude + you > 0 ? Math.round((claude / (claude + you)) * 100) : 0
+  // Until a main turn ends there is no time to split, and a 0% share would be false.
+  const timed = claude + you > 0
+  const share = timed ? Math.round((claude / (claude + you)) * 100) : 0
   const commands = Object.entries(m.commands ?? {}).sort((a, b) => b[1] - a[1])
   const cmdCount = commands.reduce((s, [, n]) => s + n, 0)
   const parts = [
     { value: claude, color: HEX.accent, label: 'Claude working' },
     { value: you, color: HEX.muted, label: 'Between turns' },
   ]
-  return ui.section('Activity', `Claude ${share}% · you ${100 - share}%`, [
-    ui.Svg ? ui.chart(stackSvg(ui.px, parts), `Claude worked ${share}% of active time`) : ui.termBar(share / 100, 'suggestion'),
+  return ui.section('Activity', timed ? `Claude ${share}% · you ${100 - share}%` : 'no turn ended yet', [
+    timed && (ui.Svg ? ui.chart(stackSvg(ui.px, parts), `Claude worked ${share}% of active time`) : ui.termBar(share / 100, 'suggestion')),
     caption(
       ui,
       `${plural(prompts, 'prompt')}` +
@@ -132,6 +141,7 @@ export const backgroundText = (m: Metrics): string => {
   const done = m.background
   const bits = [running > 0 ? `${running} in background` : '', done && done.count > 0 ? `${done.count} background done in ${fmtMs(done.ms)}` : '']
   if (done && done.failed > 0) bits.push(`${done.failed} failed`)
+  if (done && (done.stopped ?? 0) > 0) bits.push(`${done.stopped} stopped`)
   return bits.filter(Boolean).join(', ')
 }
 

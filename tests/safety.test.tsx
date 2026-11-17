@@ -63,6 +63,19 @@ test('a slow-call label holds a name, and no content reaches the store or the pa
   await ui.unmount()
 })
 
+test('a token in a quoted assignment before a command never becomes its label', async ($, on) => {
+  const { store } = world(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.turn.start({ text: 'hi', turnId: 't1' })
+  await $.tool.call({ tool: 'Bash', command: `AUTH="Bearer ${SECRET}" TOKEN='a ${SECRET}' curl https://x.test` })
+  await $.tool.call({ tool: 'Bash', command: `KEY="${SECRET} with no closing quote` })
+  await $.turn.complete({ answer: '', durationMs: 2_000, isAborted: false, turnId: 't1', reason: 'answer' })
+
+  expect(JSON.stringify([...store.values()])).not.toContain('SECRET')
+  const saved = store.get('session:abc') as { metrics: { slowest: { label: string }[] } }
+  expect(saved.metrics.slowest.map(c => c.label).sort()).toEqual(['', 'curl'])
+})
+
 test('a save of an older layout is deleted when a session starts', async ($, on) => {
   const old = { shape: 'metrics-3', savedAt: 1, metrics: { mainTurns: 1, slowest: [{ tool: 'Bash', ms: 1, label: SECRET }] } }
   const { store } = world(on, { sessions: [{ id: 'old', savedAt: 1 }], 'session:old': old })

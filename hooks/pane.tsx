@@ -68,7 +68,7 @@ export const drawPane = ({ Box, Text, Svg }: Kit, { m, usage, now, daily, elapse
   const inTotal = m.cacheReadTokens + m.cacheWriteTokens + m.inputTokens
   const cachedPct = inTotal > 0 ? Math.round((m.cacheReadTokens / inTotal) * 100) : 0
   const costPending = m.turns.length > 0 && m.turns.every(t => t.costUsd === null)
-  const pluginCalls = Object.entries(m.pluginCalls)
+  const pluginCalls = Object.entries(m.pluginCalls ?? {})
   const models = Object.entries(m.models ?? {}).sort((a, b) => b[1].outputTokens - a[1].outputTokens)
   const paces = usage.rateLimits.map(l => paceOf(l, m.rateStart?.[l.kind], now))
   const compactions = m.compactions ?? []
@@ -79,8 +79,8 @@ export const drawPane = ({ Box, Text, Svg }: Kit, { m, usage, now, daily, elapse
   const chart = (source: string, alt: string, isInteractive = true) =>
     Svg ? <Svg source={source} alt={alt} width={px} height={heightOf(source)} isInteractive={isInteractive || undefined} /> : null
 
-  const termBar = (frac: number, color: string) => {
-    const [filled, empty] = blockBar(frac, cells)
+  const termBar = (frac: number, color: string, width = cells) => {
+    const [filled, empty] = blockBar(frac, width)
     return (
       <Text>
         <Text color={color}>{filled}</Text>

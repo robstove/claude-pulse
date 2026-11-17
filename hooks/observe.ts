@@ -26,9 +26,11 @@ export function observe(on: On): void {
         const ids = r.agentId
           ? Object.fromEntries(Object.entries({ ...m.agentTypes, [r.agentId]: e.subagentType }).slice(-MAX_AGENT_IDS))
           : m.agentTypes
+        // A resumed subagent or a teammate brought back from disk runs again; it is no new start.
+        const spawns = prev.spawns + (e.resume === undefined ? 1 : 0)
         return {
           ...m,
-          agents: { ...m.agents, [e.subagentType]: { ...prev, spawns: prev.spawns + 1, model: r.model } },
+          agents: { ...m.agents, [e.subagentType]: { ...prev, spawns, model: r.model } },
           agentTypes: ids,
         }
       }),
@@ -39,7 +41,8 @@ export function observe(on: On): void {
   on('session.compact', async ($, e, next) => {
     const r = await next(e)
     // A precompute only prepares a summary; the conversation changes on the compaction that uses it.
-    if (e.trigger === 'precompute' || r.skip !== undefined) return r
+    // A subagent's or a fork's own compaction leaves the main conversation as it was.
+    if (e.trigger === 'precompute' || e.agentId !== undefined || r.skip !== undefined) return r
     await quietly(async () => {
       const at = await $.clock.now()
       await update($, metrics, m => ({
@@ -57,8 +60,8 @@ export function observe(on: On): void {
     const r = await next(e)
     // A notification delivered into a running turn starts no turn, so its task ends here.
     if (e.origin?.kind === 'task-notification') await quietly(() => noteTaskNotice($, e.text))
-    // Only the person's own prompts count: not a notification, a schedule, or another session's message.
-    if (e.isMeta || !PERSON.has(e.origin?.kind ?? 'composer')) return r
+    // Only the person's own prompts that entered count: not a dropped one, a notification, a schedule, or another session's message.
+    if (r.drop !== undefined || e.isMeta || !PERSON.has(e.origin?.kind ?? 'composer')) return r
     const name = e.command?.name
     await quietly(() =>
       update($, metrics, m => ({

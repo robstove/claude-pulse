@@ -11,8 +11,9 @@ const PANE = {
 
 const HINT = { plugin: 'pulse', component: 'PromptHint', props: { isDraft: false, isWorking: false, hint: '' } } as const
 
-// A clock the test moves, and a store; `tool.call` answers from `answers` by tool name.
-const world = (on: On, answers: Record<string, unknown> = {}, asks: readonly string[] = []) => {
+// A clock the test moves, and a store; `tool.call` answers from `answers` by tool name. tool.check asks for the tools in `asks`,
+// holding each for 5 s as a person would, and refuses those in `denies`, as a permission rule does.
+const world = (on: On, answers: Record<string, unknown> = {}, asks: readonly string[] = [], denies: readonly string[] = []) => {
   const clock = { now: 10_000 }
   const store = new Map<string, unknown>()
   on('command.register', () => ({ value: { command: 'pulse' } }))
@@ -26,7 +27,12 @@ const world = (on: On, answers: Record<string, unknown> = {}, asks: readonly str
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
   on('prompt.submit', (_, e) => ({ text: e.text }))
-  on('tool.check', (_, e) => ({ decision: asks.includes(e.tool) ? 'ask' : 'allow' }))
+  on('tool.check', (_, e) => {
+    if (denies.includes(e.tool)) return { decision: 'deny' }
+    if (!asks.includes(e.tool)) return { decision: 'allow' }
+    clock.now += 5_000
+    return { decision: 'ask' }
+  })
   on('tool.call', (_, e) => {
     clock.now += 3_000
     return (answers[e.tool] ?? { result: {} }) as never
@@ -63,6 +69,15 @@ test('a refused call counts as refused, not as an error, and adds no time', asyn
   await ui.unmount()
 })
 
+test('a call that a permission rule refuses counts as refused, though the engine answers it with an error', async ($, on) => {
+  world(on, {}, [], ['Bash'])
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.tool.call({ tool: 'Bash', command: 'rm -rf /', tool_use_id: 'u1' })
+  await $.tool.call({ tool: 'Read', file_path: '/a.ts', tool_use_id: 'u2' })
+
+  expect(await hintLine($)).toContain('2 tools (1 refused)')
+})
+
 test('a tool error is still an error', async ($, on) => {
   world(on, { Bash: { result: 'exit 1', text: 'exit 1', isError: true } })
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
@@ -79,7 +94,7 @@ test('a call put to a decider counts with no time, so the wait for approval is n
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /^2 calls · 3s/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: / · 1 with approval 0ms/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: / · 1 with approval 5s/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^Bash +1× approval$/ })).toBeDefined()
   await ui.unmount()
 })
@@ -104,6 +119,31 @@ test('a background task is timed to its notification, which is no prompt of the 
   expect(await done.find({ type: 'Text', text: /^1 prompt/ })).toBeDefined()
   expect(await done.find({ type: 'Text', text: /secret/ })).toBeUndefined()
   await done.unmount()
+})
+
+test('a background task that was killed counts as stopped, not as failed or done well', async ($, on) => {
+  const { clock } = world(on, { Bash: { result: { stdout: '', backgroundTaskId: 'bg1' } } })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.tool.call({ tool: 'Bash', command: 'npm run dev', run_in_background: true, tool_use_id: 'u1' })
+  clock.now += 60_000
+  const notice = '<task-notification>\n<task-id>bg1</task-id>\n<status>killed</status>\n</task-notification>'
+  await $.prompt.submit({ text: notice, wait: false, origin: { kind: 'task-notification' } })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: / · 1 background done in 1m 3s, 1 stopped/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /failed/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a background task that a subagent starts is not timed, because its end goes to that subagent', async ($, on) => {
+  world(on, { Bash: { result: { stdout: '', backgroundTaskId: 'bg1' } } })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.tool.call({ tool: 'Bash', command: 'npm run dev', run_in_background: true, tool_use_id: 'u1', agentId: 'a1' })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^1 calls/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /in background/ })).toBeUndefined()
+  await ui.unmount()
 })
 
 test('the warnAt and alertAt options set when a meter turns amber and red', { options: { warnAt: 50, alertAt: 65 } }, async ($, on) => {

@@ -217,15 +217,71 @@ test('each turn saves the session and the store keeps the newest 50', async ($, 
   expect(store.has('session:s1')).toBe(true)
 })
 
-test('a new session id after /clear starts the pane empty', async ($, on) => {
-  const { ids } = world(on)
+// The engine raises session.end with reason `clear` and then no session.start: the process goes on under the new id.
+test('after /clear the pane starts empty, and the new turns save under the new id', async ($, on) => {
+  const { ids, store } = world(on)
+  on('session.end', () => ({ sessionId: 'abc' }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.turn.start({ text: 'hi', turnId: 't1' })
+  await $.turn.complete({ answer: '', durationMs: 2_000, isAborted: false, turnId: 't1', reason: 'answer' })
+
+  await $.session.end({ reason: 'clear', sessionId: 'abc', resume: { id: 'abc' } })
+  ids.current = 'after-clear'
+  const empty = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await empty.find({ type: 'Text', text: 'none yet' })).toBeDefined()
+  await empty.unmount()
+
+  await $.turn.start({ text: 'hi', turnId: 't2' })
+  await $.turn.complete({ answer: '', durationMs: 2_000, isAborted: false, turnId: 't2', reason: 'answer' })
+  const old = store.get('session:abc') as { metrics: { mainTurns: number } }
+  const fresh = store.get('session:after-clear') as { metrics: { mainTurns: number } }
+  expect(old.metrics.mainTurns).toBe(1)
+  expect(fresh.metrics.mainTurns).toBe(1)
+})
+
+test('with no session.end, a new session id at the next turn still starts the figures over', async ($, on) => {
+  const { ids, store } = world(on)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await $.turn.start({ text: 'hi', turnId: 't1' })
   await $.turn.complete({ answer: '', durationMs: 2_000, isAborted: false, turnId: 't1', reason: 'answer' })
 
   ids.current = 'after-clear'
+  await $.turn.start({ text: 'hi', turnId: 't2' })
+  await $.turn.complete({ answer: '', durationMs: 2_000, isAborted: false, turnId: 't2', reason: 'answer' })
+  expect((store.get('session:abc') as { metrics: { mainTurns: number } }).metrics.mainTurns).toBe(1)
+  expect((store.get('session:after-clear') as { metrics: { mainTurns: number } }).metrics.mainTurns).toBe(1)
+})
+
+test('a save from 0.4.0, which has no plugin-call counts, still draws', async ($, on) => {
+  const { metrics, ...rest } = saved(5)
+  const { pluginCalls: _, ...without } = metrics
+  world(on, { 'session:abc': { ...rest, metrics: without } })
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect(await ui.find({ type: 'Text', text: 'none yet' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^5 turns · avg 3s/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a resumed subagent is not a second start', async ($, on) => {
+  world(on)
+  on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'a1' }))
+  const spawn = {
+    tool_use_id: 'u1',
+    prompt: 'look around',
+    description: 'Look around',
+    subagentType: 'Explore',
+    provider: { plugin: 'engine', tier: 'core' },
+    parentModel: 'claude-opus-5-5',
+    permissionMode: 'default',
+    background: true,
+    fork: false,
+  } as const
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.agent.spawn(spawn)
+  await $.agent.spawn({ ...spawn, tool_use_id: 'u2', resume: { agentId: 'a1' } })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /^1 start · 1 type/ })).toBeDefined()
   await ui.unmount()
 })

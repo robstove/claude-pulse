@@ -13,6 +13,7 @@ hook agent.spawn
 hook command.run
 hook prompt.submit
 hook session.compact
+hook session.end
 hook session.start
 hook tool.call
 hook tool.check
