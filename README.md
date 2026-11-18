@@ -127,10 +127,11 @@ node scripts/version.mjs
 
 A release is a new version in `.claude-plugin/plugin.json`. `claude plugin update` compares that version, so a push that keeps it reaches no one.
 
-1. Raise `version` in `.claude-plugin/plugin.json`.
-2. Run `node scripts/version.mjs --write`.
-3. Commit both files and push to `main`, then wait for the checks to pass.
-4. Run `claude plugin tag --push`. It tags the commit `pulse--v<version>` after it checks that the manifest and the marketplace entry agree.
+```bash
+node scripts/release.mjs patch    # or minor, major, or a version such as 0.5.0
+```
+
+The script starts only from a clean `main` that matches `origin/main`. It raises the version in the manifest, regenerates `hooks/version.ts`, and runs the four checks; a failure puts both files back. Then it commits the two files, pushes to `main`, waits for the CI check run of that commit, and tags it `pulse--v<version>` with `claude plugin tag --push`. Add `--dry-run` to stop after the checks with nothing committed, or `--github-release` to also create a GitHub release with notes from the commits. It needs `git`, `gh`, and `claude`.
 
 ## License
 
