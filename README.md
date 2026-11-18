@@ -1,24 +1,20 @@
 # Pulse
 
-Live session metrics for Claude Code. Pulse tracks each session with hooks and shows the figures in a pane beside the chat and on the hint line under the prompt.
+<img align="right" hspace="16" src="docs/screenshot.png" alt="The Pulse pane for a made-up session: cost, rate limits, context, turns, activity, tokens, tools, models, subagents, and cost per day" width="415">
 
-<img src="docs/screenshot.png" alt="The Pulse pane for a made-up session, drawn by scripts/screenshot.mjs, with session cost, rate limits, context fill, turn time and cost, activity split, token mix, time per tool with the slowest calls, tokens per model, subagents, and cost per day" width="415">
+Live session metrics for Claude Code. Pulse tracks each session with hooks and shows the figures in a pane beside the chat and on the hint line under the prompt.
 
 - **Cost and elapsed time** for the session, as the status line counts them, with the cost per hour.
 - **Limits**: the 5-hour and 7-day rate-limit windows on a subscription, when each resets, the pace this session uses them at, and a red warning when that pace fills a window before it resets.
-- **Context** fill as a gauge that turns amber at 60% and red at 80% (the `warnAt` and `alertAt` options), a line of the fill after each turn, and a mark at each compaction.
-- **Turns**: time and cost per turn on one chart, with a live bar that grows once a second while a turn runs. Under it: model requests per turn, time to the first token, output tokens per second, effort, server tools such as web search, replies cut at the output limit, and turns that were interrupted or failed.
-- **Activity**: how the active time splits between Claude at work and you between turns, with your prompt and slash-command counts. Task notifications, schedules, and messages from other sessions are not your prompts and do not count.
+- **Context** fill as a gauge that turns amber at 60% and red at 80%, a line of the fill after each turn, and a mark at each compaction.
+- **Turns**: time and cost per turn on one chart, with a live bar while a turn runs. Under it: model requests per turn, time to the first token, output tokens per second, effort, server tools, cut replies, and interrupted or failed turns.
+- **Activity**: Claude's working time and your time between turns, with your prompt and slash-command counts.
 - **Tokens**: cache read, cache write, input, and output as one stacked bar.
-- **Tools**: total time per tool, with failed calls in red and the p50 and p95 time on hover, plus the three slowest calls. Calls that other plugins make through the tool chain are counted apart.
-  - A call that a permission rule, a hook, or you at the permission dialog refused counts as refused, not as failed, and adds no time. Claude Code marks a no at the dialog only by the words of its error, so if those words change, such a call counts as failed.
-  - A call you interrupt counts, but not as failed.
-  - A call that went to a permission decision, from you or from auto mode's classifier, keeps its time apart, as "with approval", because Claude Code does not report when the decision ends. Tool time, p50, p95, and the slowest calls leave these calls out. In auto mode most calls that write go to the classifier, so most of their time shows as "with approval".
-  - A command sent to the background, a background subagent, a workflow, or a monitor with a timeout is timed until its notification says it ended. The Tools line shows how many still run, and how many failed or were stopped. A background task that a subagent starts reports to that subagent, so Pulse does not time it.
-- **Files**: the files that Edit, Write, MultiEdit, and NotebookEdit changed, most edited first.
-- **Models**: turns, average time, and tokens for each model that answered, so a `/model` switch shows its own share.
+- **Tools**: total time per tool, with failed calls in red, the p50 and p95 time on hover, and the three slowest calls.
+- **Files**: the files that Claude edited, most edited first.
+- **Models**: turns, average time, and tokens for each model, so a `/model` switch shows its own share.
 - **Subagents**: starts, time, tokens, and model for each subagent type.
-- **History**: cost per day for the last 14 days across all sessions, with today and 7-day totals. Each session keeps its own record of what it spent, so sessions that run at the same time never overwrite each other. Other sessions' spend shows after this session's next turn.
+- **History**: cost per day for the last 14 days across all sessions, with today and 7-day totals.
 
 On desktop, VS Code, and mobile the charts are SVG with hover tooltips. The terminal gets block-character bars and sparklines.
 
@@ -46,17 +42,7 @@ In the desktop app, where `/plugin` does not run: click + next to the prompt box
 
 The pane opens when a session starts. If you close it, `/pulse` opens it again. Its title shows the Pulse version, so you can see when an update reached the session.
 
-Counts start when the plugin first loads in a session. Cost, elapsed time, context, and rate limits come from the engine and cover the whole session.
-
-The cost is the engine's own ledger, the same total that `/cost` and the status line show. The engine prices each API response in the session, subagents and compaction included, from its token counts at the model's list price, or at your organization's managed pricing when one is set. On a subscription it is an estimate at API rates, not a bill. Pulse gets the cost of a turn from the change in that total across the turn. The pace of a rate-limit window shows after 10 minutes of readings in the session.
-
-Pulse saves each session's metrics in its plugin store at the end of every turn and when the session ends, so a restart or `claude --resume` reopens the pane with the session's history. It keeps the 50 most recent sessions. `/clear` starts a new session, and the pane starts empty.
-
-A slow call's label holds a name, never content: the description Claude wrote for the call, the program a command runs, the last two parts of a file path, or the host of an address. Pulse never keeps a command line, a search pattern, a query, or a prompt. When a session starts, Pulse deletes the saves of earlier versions, because they kept raw command lines and addresses.
-
-A fault in Pulse never reaches a tool call, a turn, or the prompt hint. If the pane cannot draw its metrics, it shows a line that says so. If the saved metrics fail to load when a session starts, Pulse tries again at the next turn.
-
-## Options
+### Options
 
 Set them with `claude plugin configure pulse`, then start a new session.
 
@@ -65,7 +51,66 @@ Set them with `claude plugin configure pulse`, then start a new session.
 | `warnAt` | `60` | the fill, in percent, at which the context and rate-limit meters turn amber |
 | `alertAt` | `80` | the fill at which they turn red; a pair out of order counts as not set |
 
+### Saved data
+
+Pulse saves each session's metrics in its plugin store at the end of every turn and when the session ends. A restart or `claude --resume` reopens the pane with the session's history. Pulse keeps the 50 most recent sessions. `/clear` starts a new session, and the pane starts empty.
+
+Each session keeps its own record of what it spent per day, so sessions that run at the same time never overwrite each other. The History chart shows other sessions' spend after this session's next turn.
+
+### Faults
+
+A fault in Pulse never reaches a tool call, a turn, or the prompt hint. If the pane cannot draw its metrics, it shows a line that says so. If the saved metrics fail to load when a session starts, Pulse tries again at the next turn.
+
+## Privacy
+
+Pulse keeps counts and times, never content. It never keeps a command line, a search pattern, a query, a prompt, or a tool result.
+
+A slow call's label holds a name only: the description Claude wrote for the call, the program a command runs, the last two parts of a file path, or the host of an address.
+
+When a session starts, Pulse deletes each save of an earlier layout, because earlier versions kept raw command lines and addresses.
+
+Pulse makes no network calls and reads no files. CI fails any change that adds such a call (see Develop).
+
+## How Pulse counts
+
+**Scope.** Counts start when the plugin first loads in a session. Cost, elapsed time, context, and rate limits come from Claude Code and cover the whole session.
+
+**Cost.** The cost is Claude Code's own ledger, the same total that `/cost` and the status line show. Claude Code prices each API response in the session, subagents and compaction included, at the model's list price, or at your organization's managed pricing when one is set. On a subscription it is an estimate at API rates, not a bill. Pulse gets the cost of a turn from the change in that total across the turn.
+
+**Limits.** The pace of a rate-limit window shows after 10 minutes of readings in the session.
+
+**Activity.** Task notifications, schedules, and messages from other sessions are not your prompts and do not count.
+
+**Tools.**
+
+- Calls that other plugins make through the tool chain count apart from Claude's calls.
+- A call that a permission rule, a hook, or you at the permission dialog refused counts as refused, not as failed, and adds no time. Claude Code marks a no at the dialog only by the words of its error, so if those words change, such a call counts as failed.
+- A call you interrupt counts, but not as failed.
+- A call that went to a permission decision, from you or from auto mode's classifier, keeps its time apart, as "with approval", because Claude Code does not report when the decision ends. Tool time, p50, p95, and the slowest calls leave these calls out. In auto mode most calls that write go to the classifier, so most of their time shows as "with approval".
+- A command sent to the background, a background subagent, a workflow, or a monitor with a timeout is timed until its notification says it ended. The Tools line shows how many still run, and how many failed or were stopped. A background task that a subagent starts reports to that subagent, so Pulse does not time it.
+- Pulse hooks `tool.call` for every tool, so Claude Code turns off the move of a running call to the background, as it does for any plugin that hooks tool calls.
+
+**Files.** Edit, Write, MultiEdit, and NotebookEdit count as edits.
+
 ## Develop
+
+### How it works
+
+```mermaid
+flowchart LR
+  CC["Claude Code events"] --> R["register.tsx<br/>session, turn, command"]
+  CC --> T["tools.ts<br/>tool.check, tool.call"]
+  CC --> O["observe.ts<br/>prompt, step, subagent, compaction"]
+  R & T & O --> M[("metrics atom")]
+  M -- "end of each turn,<br/>session end" --> S[("plugin store<br/>session save, cost keys")]
+  S -- "cost keys" --> C[("costs atom")]
+  M & C --> P["Pane"]
+  M --> H["prompt hint"]
+```
+
+`hooks/register.tsx` adopts the session, times turns, and saves at each turn end through `persist.ts` and `ledger.ts`. `tools.ts` times each tool call, and `tasks.ts` follows background tasks to their notifications. `observe.ts` counts prompts, model steps, subagents, and compactions. The pane and the hint read only the atoms. A once-a-second `tick` atom redraws the pane while a turn runs.
+
+### Checks
 
 ```bash
 claude plugin validate .
@@ -77,10 +122,6 @@ node scripts/check-version.mjs
 `scripts/check-surface.mjs` lists each event Pulse hooks and each engine call it makes. It fails when the list differs from `scripts/surface.txt`, so a new hook or call shows in the pull request. A call that reaches outside the session (`$.fs`, `$.process`, `$.model`, `fetch`) fails it whatever the file says. Run it with `--write` after an intended change.
 
 `scripts/check-version.mjs` fails when the version in `hooks/version.ts`, which the pane title shows, differs from the one in `.claude-plugin/plugin.json`. Change both when you raise the version. CI runs all four checks on Claude Code 2.1.325.
-
-The screenshot at the top shows a made-up session, `scripts/screenshot/pane.shot.tsx`, drawn by `node scripts/screenshot.mjs`. The script lays out the pane's drawn tree as HTML and saves it with Playwright, so spacing and fonts are close to the app, not exact. After a push to `main` that changes `hooks/`, `types/`, or the script, CI draws it again and commits it when the picture changed. To draw it locally, install `playwright` with `npm install --no-save`; set `PULSE_BROWSER=msedge` or `chrome` to use an installed browser in place of Playwright's Chromium.
-
-Pulse hooks `tool.call` for every tool. Claude Code then turns off the move of a running call to the background for those tools, as it does for any plugin that hooks them. Version 0.4.0 read calls from the `classic.PostToolUse` events to avoid this, but the built-in `cc-plugin-sec-default` plugin passes every `classic.*` event on past the plugins a person installs, so 0.4.0 counted no tool calls. Version 0.4.1 hooks `tool.call` again.
 
 ## License
 
