@@ -21,7 +21,7 @@ try {
 
 const modules = (report.contents ?? []).flatMap(c => c.modules ?? [])
 if (modules.length === 0) {
-  console.error('claude plugin validate --json reports no hooks module.')
+  console.error('claude plugin validate --json reports no hooks module. Its modules field needs Claude Code 2.1.326 or later.')
   process.exit(1)
 }
 
