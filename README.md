@@ -121,7 +121,16 @@ node scripts/version.mjs
 
 `scripts/check-surface.mjs` lists each event Pulse hooks, each engine call it makes, and each environment variable it touches, from the report of `claude plugin validate --json`. It fails when the list differs from `scripts/surface.txt`, so a new hook or call shows in the pull request. A call that reaches outside the session (`$.fs`, `$.process`, `$.model`, and the like) fails it whatever the file says. Run it with `--write` after an intended change.
 
-`.claude-plugin/plugin.json` holds the version. `scripts/version.mjs` fails when `hooks/version.ts`, which the pane title shows, differs from the file it generates from the manifest. To raise the version, change the manifest, then run `node scripts/version.mjs --write`. CI runs all four checks on the release in `.claude-code-version`.
+`.claude-plugin/plugin.json` holds the version. `scripts/version.mjs` fails when `hooks/version.ts`, which the pane title shows, differs from the file it generates from the manifest. CI runs all four checks on the release in `.claude-code-version`.
+
+### Release
+
+A release is a new version in `.claude-plugin/plugin.json`. `claude plugin update` compares that version, so a push that keeps it reaches no one.
+
+1. Raise `version` in `.claude-plugin/plugin.json`.
+2. Run `node scripts/version.mjs --write`.
+3. Commit both files and push to `main`, then wait for the checks to pass.
+4. Run `claude plugin tag --push`. It tags the commit `pulse--v<version>` after it checks that the manifest and the marketplace entry agree.
 
 ## License
 
