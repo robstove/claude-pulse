@@ -1,5 +1,6 @@
 {
   "name": "claude-pulse",
+  "description": "Pulse, a Claude Code plugin that shows live session metrics in a pane beside the chat",
   "owner": { "name": "robstove" },
   "plugins": [{ "name": "pulse", "source": "./" }]
 }

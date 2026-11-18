@@ -3,6 +3,8 @@ call $.clock.now
 call $.command.register
 call $.session.id
 call $.session.usage
+call $.state.get
+call $.state.set
 call $.store.delete
 call $.store.get
 call $.store.keys

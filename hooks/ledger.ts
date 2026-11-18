@@ -14,13 +14,23 @@ const COST = /^cost:(\d{4}-\d{2}-\d{2}):([^:]+):(\d+)$/
 const LEGACY = 'daily'
 const KEEP_DAYS = 60
 
-type Entry = { key: string; day: string; session: string; micro: number }
+export type CostEntry = { key: string; day: string; session: string; micro: number }
 
-const entries = (keys: readonly string[]): Entry[] =>
+/** The cost keys among a store's keys, parsed. */
+export const costEntries = (keys: readonly string[]): CostEntry[] =>
   keys.flatMap(key => {
     const m = COST.exec(key)
     return m?.[1] !== undefined && m[2] !== undefined ? [{ key, day: m[1], session: m[2], micro: Number(m[3]) }] : []
   })
+
+/** Spend per day: a failed delete can leave an older key beside the newest, so each session's day counts its largest amount. */
+export function spendByDay(entries: readonly CostEntry[]): Record<string, number> {
+  const newest = new Map<string, CostEntry>()
+  for (const x of entries) if ((newest.get(`${x.day}:${x.session}`)?.micro ?? -1) < x.micro) newest.set(`${x.day}:${x.session}`, x)
+  const byDay: Record<string, number> = {}
+  for (const x of newest.values()) byDay[x.day] = (byDay[x.day] ?? 0) + x.micro / 1e6
+  return byDay
+}
 
 const isLegacy = (v: unknown): v is Record<string, number> =>
   typeof v === 'object' && v !== null && !Array.isArray(v) && Object.values(v).every(x => typeof x === 'number')
@@ -30,7 +40,7 @@ export async function addCost($: EngineInterface, session: string, day: string, 
   const micro = Math.round(usd * 1e6)
   if (micro <= 0) return
   const id = session.replace(/:/g, '_')
-  const mine = entries(await $.store.keys()).filter(x => x.day === day && x.session === id)
+  const mine = costEntries(await $.store.keys()).filter(x => x.day === day && x.session === id)
   // A failed delete can leave an older key beside the newest one; a total only grows, so the largest is the total.
   const held = Math.max(0, ...mine.map(x => x.micro))
   // The new key goes in before the old ones go out, so a failure between the two keeps the spend.
@@ -42,13 +52,9 @@ export async function addCost($: EngineInterface, session: string, day: string, 
 export async function refreshCosts($: EngineInterface, now: number): Promise<void> {
   const keys = await $.store.keys()
   const oldest = lastDays(now, KEEP_DAYS)[0] ?? ''
-  const newest = new Map<string, Entry>()
-  for (const x of entries(keys)) {
-    if (x.day < oldest) await $.store.delete(x.key)
-    else if ((newest.get(`${x.day}:${x.session}`)?.micro ?? -1) < x.micro) newest.set(`${x.day}:${x.session}`, x)
-  }
-  const byDay: Record<string, number> = {}
-  for (const x of newest.values()) byDay[x.day] = (byDay[x.day] ?? 0) + x.micro / 1e6
+  const all = costEntries(keys)
+  for (const x of all) if (x.day < oldest) await $.store.delete(x.key)
+  const byDay = spendByDay(all.filter(x => x.day >= oldest))
   if (keys.includes(LEGACY)) {
     const legacy = await $.store.get(LEGACY)
     if (isLegacy(legacy)) for (const [day, usd] of Object.entries(legacy)) if (day >= oldest) byDay[day] = (byDay[day] ?? 0) + usd

@@ -1,5 +1,7 @@
 import type { test } from 'claude-code/testing'
 
+import { costEntries, spendByDay } from '../hooks/ledger'
+
 // The pieces every test file shares. This file holds no test, so `claude plugin test` only imports it.
 
 type Body = Extract<Parameters<typeof test>[1], (...args: never[]) => unknown>
@@ -31,14 +33,5 @@ export const memoryStore = (on: On, entries: Record<string, unknown> = {}): Map<
   return store
 }
 
-/** The spend per day that the store's cost keys hold, as Pulse reads it: the largest amount of each session's day. */
-export const costsIn = (store: Map<string, unknown>): Record<string, number> => {
-  const newest = new Map<string, number>()
-  for (const key of store.keys()) {
-    const m = /^cost:(\d{4}-\d{2}-\d{2}):([^:]+):(\d+)$/.exec(key)
-    if (m) newest.set(`${m[1]}:${m[2]}`, Math.max(newest.get(`${m[1]}:${m[2]}`) ?? 0, Number(m[3])))
-  }
-  const days: Record<string, number> = {}
-  for (const [id, micro] of newest) days[id.slice(0, 10)] = (days[id.slice(0, 10)] ?? 0) + micro / 1e6
-  return days
-}
+/** The spend per day that the store's cost keys hold, read with the ledger's own parser. */
+export const costsIn = (store: Map<string, unknown>): Record<string, number> => spendByDay(costEntries([...store.keys()]))

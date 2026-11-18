@@ -18,8 +18,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      # The version the tests are known to pass on. Raise it after the tests pass on a newer one.
-      CLAUDE_CODE_VERSION: 2.1.325
       DISABLE_AUTOUPDATER: 1
       DISABLE_TELEMETRY: 1
     steps:
@@ -29,14 +27,15 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
+      # .claude-code-version holds the release the tests are known to pass on. Raise it after the tests pass on a newer one.
       - name: Install Claude Code
-        run: npm install --global "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+        run: npm install --global "@anthropic-ai/claude-code@$(tr -d '[:space:]' < .claude-code-version)"
       # Neither command needs an account: they read the folder and run the tests locally.
       - name: Validate
-        run: claude plugin validate .
+        run: claude plugin validate --strict .
       - name: Test
         run: claude plugin test .
       - name: Surface
         run: node scripts/check-surface.mjs
       - name: Version
-        run: node scripts/check-version.mjs
+        run: node scripts/version.mjs

@@ -1,22 +1,40 @@
-// Lists every event Pulse hooks and every engine call it makes, and fails when that list differs from scripts/surface.txt,
-// so a new hook or call shows in the pull request. Calls that reach outside the session fail whatever the file says.
+// Lists the events Pulse hooks, the engine calls it makes, and the environment it touches, as `claude plugin validate --json`
+// reads them. Fails when the list differs from scripts/surface.txt, and on any call outside the session.
 // Run: node scripts/check-surface.mjs [--write]
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const root = join(import.meta.dirname, '..')
 const listPath = join(root, 'scripts', 'surface.txt')
-const FORBIDDEN = /\$\.(fs|process|model|agent|tool|audio|net|shell)\.|\bfetch\(/
+const OUTSIDE = /^(fs|process|model|agent|tool|audio|net|shell)\./
+
+// One fixed command string through a shell, because the CLI is a .cmd shim on Windows that only a shell starts.
+const run = spawnSync('claude plugin validate --json .', { cwd: root, encoding: 'utf8', shell: true })
+let report
+try {
+  report = JSON.parse(run.stdout)
+} catch {
+  console.error(`claude plugin validate --json gave no report (exit ${run.status}):\n${run.stderr || run.stdout}`)
+  process.exit(1)
+}
+
+const modules = (report.contents ?? []).flatMap(c => c.modules ?? [])
+if (modules.length === 0) {
+  console.error('claude plugin validate --json reports no hooks module.')
+  process.exit(1)
+}
 
 const found = new Set()
 const problems = []
-for (const name of readdirSync(join(root, 'hooks')).filter(n => /\.tsx?$/.test(n)).sort()) {
-  const text = readFileSync(join(root, 'hooks', name), 'utf8')
-  for (const m of text.matchAll(/\bon\(\s*'([\w.]+)'/g)) found.add(`hook ${m[1]}`)
-  for (const m of text.matchAll(/\$\.(\w+)\.(\w+)\(/g)) found.add(`call $.${m[1]}.${m[2]}`)
-  text.split('\n').forEach((line, i) => {
-    if (FORBIDDEN.test(line) && !/^\s*(\/\/|\*|\/\*)/.test(line)) problems.push(`hooks/${name}:${i + 1} reaches outside the session: ${line.trim()}`)
-  })
+for (const { module, uses } of modules) {
+  for (const e of uses.events) found.add(`hook ${e}`)
+  for (const c of uses.calls) {
+    found.add(`call $.${c}`)
+    if (OUTSIDE.test(c)) problems.push(`${module} reaches outside the session: $.${c}`)
+  }
+  for (const v of uses.env.reads) found.add(`env read ${v}`)
+  for (const v of uses.env.writes) found.add(`env write ${v}`)
 }
 
 const now = [...found].sort()
@@ -24,7 +42,7 @@ if (process.argv.includes('--write')) {
   writeFileSync(listPath, `${now.join('\n')}\n`)
   console.log(`wrote ${now.length} entries to scripts/surface.txt`)
 } else {
-  const listed = readFileSync(listPath, 'utf8').split('\n').map(l => l.trim()).filter(Boolean)
+  const listed = readFileSync(listPath, 'utf8').split(/\r?\n/).map(l => l.trim()).filter(Boolean)
   for (const entry of now.filter(e => !listed.includes(e))) problems.push(`not in scripts/surface.txt: ${entry}`)
   for (const entry of listed.filter(e => !now.includes(e))) problems.push(`in scripts/surface.txt but no longer used: ${entry}`)
 }

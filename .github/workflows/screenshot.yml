@@ -10,6 +10,7 @@ on:
       - 'hooks/**'
       - 'types/**'
       - '.claude-plugin/plugin.json'
+      - '.claude-code-version'
       - 'tsconfig.json'
       - 'scripts/screenshot.mjs'
       - 'scripts/screenshot/**'
@@ -29,7 +30,6 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
-      CLAUDE_CODE_VERSION: 2.1.325
       PLAYWRIGHT_VERSION: 1.49.1
       DISABLE_AUTOUPDATER: 1
       DISABLE_TELEMETRY: 1
@@ -45,7 +45,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes fonts-liberation
-          npm install --global "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+          npm install --global "@anthropic-ai/claude-code@$(tr -d '[:space:]' < .claude-code-version)"
           npm install --no-save --no-package-lock "playwright@${PLAYWRIGHT_VERSION}"
           npx playwright install --with-deps chromium
       - name: Draw
