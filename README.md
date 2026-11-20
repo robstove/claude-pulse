@@ -36,7 +36,7 @@ From a shell:
 claude plugin install pulse --marketplace robstove/claude-pulse
 ```
 
-In the desktop app, where `/plugin` does not run: click + next to the prompt box, then Plugins, Add marketplace with `robstove/claude-pulse`, then Add plugin.
+For the desktop app, run the shell command. The terminal, the desktop app's local sessions, and VS Code read the same settings, so an install at user scope reaches all three. Cloud and WSL sessions do not get it.
 
 ## Use
 
