@@ -67,7 +67,7 @@ Pulse keeps counts and times, never content. It never keeps a command line, a se
 
 A slow call's label holds a name only: the description Claude wrote for the call, the program a command runs, the last two parts of a file path, or the host of an address.
 
-When a session starts, Pulse deletes each save of an earlier layout, because earlier versions kept raw command lines and addresses.
+When a session starts after an update that changed the saved layout, Pulse converts each save to the new layout and keeps its counts. Saves made before Pulse 0.3.0 lose their slow-call list, because those versions kept raw command lines and addresses. Pulse deletes a save that it cannot convert.
 
 Pulse makes no network calls and reads no files. CI fails any change that adds such a call (see Develop).
 
@@ -101,14 +101,19 @@ flowchart LR
   CC["Claude Code events"] --> R["register.tsx<br/>session, turn, command"]
   CC --> T["tools.ts<br/>tool.check, tool.call"]
   CC --> O["observe.ts<br/>prompt, step, subagent, compaction"]
-  R & T & O --> M[("metrics atom")]
+  R & T & O -- "observations" --> K["tally.ts"]
+  K --> M[("metrics atom")]
   M -- "end of each turn,<br/>session end" --> S[("plugin store<br/>session save, cost keys")]
   S -- "cost keys" --> C[("costs atom")]
-  M & C --> P["Pane"]
+  M & C --> P["Pane<br/>sections/"]
   M --> H["prompt hint"]
 ```
 
-`hooks/register.tsx` adopts the session, times turns, and saves at each turn end through `persist.ts` and `ledger.ts`. `tools.ts` times each tool call, and `tasks.ts` follows background tasks to their notifications. `observe.ts` counts prompts, model steps, subagents, and compactions. The pane and the hint read only the atoms. A once-a-second `tick` atom redraws the pane while a turn runs.
+The hooks in `register.tsx`, `tools.ts`, and `observe.ts` only gather what an event shows, as a plain observation. `tally.ts` holds every counting rule: what counts as refused, failed, or held for approval, what a turn costs, and which prompts are the person's. Its `apply` takes the figures and one observation and returns the new figures, so a test can check a rule with no engine. `label.ts` cuts a call down to a name, and `tasks.ts` reads background tasks and their notifications.
+
+`save.ts` binds the figures to the session, saves them at each turn end, and adds the spend to the day through `ledger.ts`. It converts a save of an earlier layout step by step; a layout change adds a step there (see `SHAPE` in `state.ts`).
+
+`pane.tsx` lists the sections; each file in `hooks/sections/` draws one section, its chart where the surface draws SVG and its block characters elsewhere. The pane and the hint read only the atoms. A once-a-second `tick` atom redraws the pane while a turn runs.
 
 ### Checks
 

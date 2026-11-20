@@ -1,6 +1,14 @@
-import type { Metrics } from '../types'
+import type { BackgroundStat, Metrics, Running, StepStats, ToolStat } from '../types'
 
 export const MAX_TURNS = 48
+
+export const EMPTY_TOOL: ToolStat = { count: 0, errors: 0, refused: 0, waited: 0, waitMs: 0, ms: 0, samples: [] }
+
+export const EMPTY_STEPS: StepStats = { count: 0, firstTokenMs: 0, firstTokenN: 0, streamMs: 0, streamOutput: 0, serverTools: {}, stopReasons: {} }
+
+export const EMPTY_BACKGROUND: BackgroundStat = { count: 0, failed: 0, stopped: 0, ms: 0 }
+
+export const IDLE: Running = { startedAt: null, toolCalls: 0, steps: 0 }
 
 export const EMPTY: Metrics = {
   mainTurns: 0,
@@ -15,16 +23,34 @@ export const EMPTY: Metrics = {
   toolCalls: 0,
   toolErrors: 0,
   toolMsTotal: 0,
+  toolRefusals: 0,
+  toolWaited: 0,
+  toolWaitMs: 0,
   byTool: {},
   models: {},
   pluginCalls: {},
   turns: [],
   lastCostUsd: null,
+  endReasons: {},
+  agents: {},
+  agentTypes: {},
+  compactions: [],
+  steps: EMPTY_STEPS,
+  prompts: 0,
+  commands: {},
+  idleMs: 0,
+  slowest: [],
+  files: {},
+  rateStart: {},
+  tasks: {},
+  background: EMPTY_BACKGROUND,
+  running: IDLE,
 }
 
-// Change this tag when a Metrics field changes meaning: stored values outlive a reload. New optional fields keep it.
-// metrics-4: a slow call's label holds a name only; metrics-3 saves held raw command lines and URLs.
-export const SHAPE = 'metrics-4'
+// Change this tag when a Metrics field changes meaning: stored values outlive a reload. hooks/save.ts converts the saves of
+// the earlier tags it lists, so a change here needs a step there.
+// metrics-5: every count is required, and the running turn lives in Metrics.
+export const SHAPE = 'metrics-5'
 
 /** The fill at which a context or rate-limit meter turns amber, and red; the user's options set them at load. */
 export const levels = { warnAt: 60, alertAt: 80 }
@@ -38,12 +64,4 @@ export const setLevels = (options: Readonly<Record<string, unknown>> | undefined
   Object.assign(levels, warnAt < alertAt ? { warnAt, alertAt } : { warnAt: 60, alertAt: 80 })
 }
 
-export const hasData = (m: Metrics): boolean => m.mainTurns > 0 || m.agentTurns > 0 || m.toolCalls > 0 || (m.toolRefusals ?? 0) > 0
-
-/** The running main turn's counters; a reload starts them over, so that one turn undercounts. */
-export const live = {
-  toolCalls: 0,
-  steps: 0,
-  startedAt: null as number | null,
-  ticker: undefined as { cancel: () => void } | undefined,
-}
+export const hasData = (m: Metrics): boolean => m.mainTurns > 0 || m.agentTurns > 0 || m.toolCalls > 0 || m.toolRefusals > 0

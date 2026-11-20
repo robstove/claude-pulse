@@ -14,9 +14,9 @@ export const statusText = (m: Metrics, usage: SessionUsage): string => {
   const fiveHour = usage.rateLimits.find(l => l.kind === 'five_hour')
   if (fiveHour) parts.push(`${GLYPH[level(fiveHour.percentUsed)]} 5h ${fiveHour.percentUsed}%`)
   if (usage.cost) parts.push(fmtUsd(usage.cost.usd))
-  const flags = [m.toolErrors > 0 ? `${m.toolErrors} err` : '', (m.toolRefusals ?? 0) > 0 ? `${m.toolRefusals} refused` : ''].filter(Boolean)
+  const flags = [m.toolErrors > 0 ? `${m.toolErrors} err` : '', m.toolRefusals > 0 ? `${m.toolRefusals} refused` : ''].filter(Boolean)
   // Refused calls ran no tool, but the count holds them, so "(1 refused)" reads as one of the calls.
-  parts.push(`${m.toolCalls + (m.toolRefusals ?? 0)} tools${flags.length > 0 ? ` (${flags.join(', ')})` : ''}`)
+  parts.push(`${m.toolCalls + m.toolRefusals} tools${flags.length > 0 ? ` (${flags.join(', ')})` : ''}`)
   if (m.mainTurns > 0) parts.push(`last ${fmtMs(m.lastTurnMs)}`)
   return parts.join(' · ')
 }

@@ -2,18 +2,19 @@ export type ToolStat = {
   count: number
   errors: number
   /** Calls a permission rule, a person, or a hook refused before they ran; they add no time. */
-  refused?: number
+  refused: number
   /** Calls a decider held: their whole span, decision and run, is in waitMs; ms and samples leave them out. */
-  waited?: number
-  waitMs?: number
+  waited: number
+  waitMs: number
   ms: number
-  /** The last durations of this tool, newest last, for the p50 and p95; optional so 0.1.2 saves load. */
-  samples?: number[]
+  /** The last durations of this tool, newest last, for the p50 and p95. */
+  samples: number[]
 }
 
 /** One main-loop turn, kept for the per-turn charts. */
 export type TurnRecord = {
   ms: number
+  /** Every input token the turn sent, cached or not. */
   inputTokens: number
   outputTokens: number
   /** Null when the cost before the turn is unknown. */
@@ -21,10 +22,10 @@ export type TurnRecord = {
   contextPct: number | null
   toolCalls: number
   isAborted: boolean
-  /** Model requests the turn made. */
+  /** Model requests the turn made; absent on a turn that Pulse 0.1 saved, which did not count them. */
   steps?: number
   /** answer, aborted, refusal, or error. */
-  reason?: string
+  reason: string
 }
 
 /** One model's share: every turn it answered last, main or subagent; time counts main turns only. */
@@ -32,6 +33,7 @@ export type ModelStat = {
   turns: number
   mainTurns: number
   ms: number
+  /** Input tokens not read from or written to the cache. */
   inputTokens: number
   outputTokens: number
   cacheReadTokens: number
@@ -43,6 +45,7 @@ export type AgentStat = {
   spawns: number
   turns: number
   ms: number
+  /** Every input token its turns sent, cached or not. */
   inputTokens: number
   outputTokens: number
   /** The model the last spawn of this type ran on. */
@@ -65,7 +68,7 @@ export type SlowCall = { tool: string; ms: number; label: string; background?: t
 export type OpenTask = { tool: string; label: string; startedAt: number }
 
 /** Background tasks that ended, timed from their call to their notification; `stopped` counts those the person or Claude killed. */
-export type BackgroundStat = { count: number; failed: number; stopped?: number; ms: number }
+export type BackgroundStat = { count: number; failed: number; stopped: number; ms: number }
 
 /** Model requests across all loops. */
 export type StepStats = {
@@ -84,9 +87,13 @@ export type StepStats = {
 /** The first reading of a rate-limit window in this session, or after the window reset; `resetsAt` names the window. */
 export type RateStart = { at: number; pct: number; resetsAt?: string }
 
+/** The main turn that runs now; `startedAt` is null between turns, or when the clock failed at its start. */
+export type Running = { startedAt: number | null; toolCalls: number; steps: number }
+
 export type Metrics = {
   mainTurns: number
   agentTurns: number
+  /** Input tokens not read from or written to the cache; the cache counts are apart. */
   inputTokens: number
   outputTokens: number
   cacheReadTokens: number
@@ -98,39 +105,38 @@ export type Metrics = {
   toolErrors: number
   /** Time of the calls that no decider held, so a permission prompt's wait is not in it. */
   toolMsTotal: number
+  toolRefusals: number
+  toolWaited: number
+  toolWaitMs: number
   byTool: Record<string, ToolStat>
-  /** Optional, so values stored before 0.1.1 still load under the same shape tag. */
-  models?: Record<string, ModelStat>
-  /** Calls another plugin made through the tool chain, by plugin name; not the model's. Absent on values that 0.4.0 saved. */
-  pluginCalls?: Record<string, number>
+  models: Record<string, ModelStat>
+  /** Calls another plugin made through the tool chain, by plugin name; not the model's. */
+  pluginCalls: Record<string, number>
   turns: TurnRecord[]
   lastCostUsd: number | null
-  /** The session these figures belong to; absent on values saved before 0.1.2. */
+  /** The session these figures belong to; absent until a session binds them. */
   sessionId?: string
-  // The fields below came in 0.2.0. They are optional, so a 0.1.2 save loads under the same shape tag.
   /** Main turns by how they ended. */
-  endReasons?: Record<string, number>
-  agents?: Record<string, AgentStat>
+  endReasons: Record<string, number>
+  agents: Record<string, AgentStat>
   /** Subagent id to its type, so a subagent's turn counts toward its type. */
-  agentTypes?: Record<string, string>
-  compactions?: Compaction[]
-  steps?: StepStats
-  prompts?: number
-  commands?: Record<string, number>
+  agentTypes: Record<string, string>
+  compactions: Compaction[]
+  steps: StepStats
+  prompts: number
+  commands: Record<string, number>
   /** Time between main turns, each gap capped at 30 minutes. */
-  idleMs?: number
+  idleMs: number
+  /** When the last main turn ended; absent before the first. */
   lastEndedAt?: number
-  slowest?: SlowCall[]
+  slowest: SlowCall[]
   /** Edits per file path by Edit, Write, MultiEdit, and NotebookEdit. */
-  files?: Record<string, number>
-  rateStart?: Record<string, RateStart>
-  // The fields below came in 0.3.0.
-  toolRefusals?: number
-  toolWaited?: number
-  toolWaitMs?: number
+  files: Record<string, number>
+  rateStart: Record<string, RateStart>
   /** Background tasks by task id. */
-  tasks?: Record<string, OpenTask>
-  background?: BackgroundStat
+  tasks: Record<string, OpenTask>
+  background: BackgroundStat
+  running: Running
 }
 
 declare module 'claude-code' {

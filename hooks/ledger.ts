@@ -1,7 +1,19 @@
 import { atom, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
-import { lastDays } from './derive'
+/** The local calendar day of a time, as YYYY-MM-DD. */
+export const dayKey = (ms: number): string => {
+  const d = new Date(ms)
+  const two = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`
+}
+
+/** The last `n` local days, oldest first. */
+export const lastDays = (now: number, n: number): string[] => {
+  const d = new Date(now)
+  // Noon on each date, so a daylight-saving change cannot skip or repeat a day.
+  return Array.from({ length: n }, (_, i) => dayKey(new Date(d.getFullYear(), d.getMonth(), d.getDate() - (n - 1 - i), 12).getTime()))
+}
 
 // The state scan reads an atom only where its file declares it, so each file that reads or writes the costs declares the same one.
 const costs = atom({ plugin: 'pulse', key: 'costs' } as const, {} as Record<string, number>)

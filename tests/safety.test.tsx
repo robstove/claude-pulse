@@ -58,14 +58,52 @@ test('a token in a quoted assignment before a command never becomes its label', 
   expect(saved.metrics.slowest.map(c => c.label).sort()).toEqual(['', 'curl'])
 })
 
-test('a save of an older layout is deleted when a session starts', async ($, on) => {
-  const old = { shape: 'metrics-3', savedAt: 1, metrics: { mainTurns: 1, slowest: [{ tool: 'Bash', ms: 1, label: SECRET }] } }
-  const { store } = world(on, { sessions: [{ id: 'old', savedAt: 1 }], 'session:old': old })
+test('a save of an older layout keeps its counts and loses its raw labels; a layout with no step is deleted', async ($, on) => {
+  const old = {
+    shape: 'metrics-3',
+    savedAt: 1,
+    metrics: { mainTurns: 3, cacheReadTokens: 5_000, byTool: { Bash: { count: 2, errors: 0, ms: 40 } }, slowest: [{ tool: 'Bash', ms: 1, label: SECRET }] },
+  }
+  const ancient = { shape: 'metrics-2', savedAt: 2, metrics: { mainTurns: 9 } }
+  const { store } = world(on, { sessions: [{ id: 'old', savedAt: 1 }], 'session:old': old, 'session:ancient': ancient })
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
 
-  expect(store.has('session:old')).toBe(false)
-  expect(store.get('sessions')).toEqual([])
-  expect(store.get('shape')).toBe('metrics-4')
+  expect(JSON.stringify([...store.values()])).not.toContain(SECRET)
+  expect(store.has('session:ancient')).toBe(false)
+  const saved = store.get('session:old') as { shape: string; metrics: { mainTurns: number; cacheReadTokens: number; toolRefusals: number; byTool: Record<string, unknown> } }
+  expect(saved.shape).toBe('metrics-5')
+  expect(saved.metrics.mainTurns).toBe(3)
+  expect(saved.metrics.cacheReadTokens).toBe(5_000)
+  expect(saved.metrics.toolRefusals).toBe(0)
+  expect(saved.metrics.byTool.Bash).toEqual({ count: 2, errors: 0, refused: 0, waited: 0, waitMs: 0, ms: 40, samples: [] })
+  expect(store.get('sessions')).toEqual([{ id: 'old', savedAt: 1 }])
+  expect(store.get('shape')).toBe('metrics-5')
+})
+
+test('a resumed session whose save has an older layout shows its counts', async ($, on) => {
+  // Pulse 0.1 saved turns with no request count; the average leaves them out instead of counting 0.
+  const turn = (steps?: number) => ({ ms: 1_000, inputTokens: 0, outputTokens: 0, costUsd: null, contextPct: null, toolCalls: 0, isAborted: false, steps })
+  const steps = { count: 8, firstTokenMs: 0, firstTokenN: 0, streamMs: 0, streamOutput: 0, serverTools: {}, stopReasons: {} }
+  const old = { shape: 'metrics-4', savedAt: 1, metrics: { mainTurns: 4, toolCalls: 7, byTool: {}, turns: [turn(), turn(), turn(3), turn(5)], steps } }
+  world(on, { sessions: [{ id: 'abc', savedAt: 1 }], 'session:abc': old })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^7 calls · / })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^4 turns/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^4\.0 requests a turn/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a save whose layout tag names an Object key is deleted, and the other saves still convert', async ($, on) => {
+  const odd = { shape: 'constructor', savedAt: 1, metrics: { mainTurns: 1 } }
+  const old = { shape: 'metrics-4', savedAt: 2, metrics: { mainTurns: 2 } }
+  const { store } = world(on, { 'session:odd': odd, 'session:old': old })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  expect(store.has('session:odd')).toBe(false)
+  expect((store.get('session:old') as { shape: string }).shape).toBe('metrics-5')
+  expect(store.get('shape')).toBe('metrics-5')
 })
 
 test('with every engine call Pulse makes failing, each event still passes and the pane still draws', async ($, on) => {
