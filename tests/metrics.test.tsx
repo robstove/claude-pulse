@@ -324,6 +324,29 @@ test('a context fill that is not known yet shows as a dash, not as a safe 0%', a
   await pane.unmount()
 })
 
+test('each window shows how far it is past or short of an even spread, with a marker at now', async ($, on) => {
+  const { state } = engine(on)
+  // 2 of 5 hours gone is 40%; 30% used is 10 points under an even spread. 6 of 7 days gone is 86%; 90% used is 4 over.
+  state.limits = [
+    { kind: 'five_hour', percentUsed: 30, resetsAt: new Date(state.now + 3 * 3_600_000).toISOString() },
+    { kind: 'seven_day', percentUsed: 90, resetsAt: new Date(state.now + 24 * 3_600_000).toISOString() },
+  ]
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await turn($, 't1')
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(await ui.find({ type: 'Text', text: /^5-hour: resets in 3h 0m · pace after 10 min · 10 pts under even pace$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^7-day: resets in .* · 4 pts over even pace$/ })).toBeDefined()
+    await ui.unmount()
+  }
+  // The caret sits under the 12th of the 30 bar cells, 40% of the way; the 7-day caret under the 25th, 6 of 7 days in.
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^ {8}[ ╵]{12}▲[ ╵]*$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^ {8}[ ╵]{25}▲[ ╵]*$/ })).toBeDefined()
+  await ui.unmount()
+})
+
 test('on the terminal a Limits row fits the pane: the label and the bar fill the cells together', async ($, on) => {
   const { state } = engine(on)
   state.limits = [{ kind: 'five_hour', percentUsed: 30 }]

@@ -23,10 +23,42 @@ type Pace = {
   fullInMs: number | null
   /** The fill at reset if the pace holds. */
   atResetPct: number | null
+  /** The part of the window gone by now, 0 to 1; null when the window has no reset time or no known length. */
+  elapsed: number | null
+  /** Where each local day (7-day) or hour (5-hour) starts inside the window, as parts of it. */
+  ticks: number[]
 }
 
 const windowLabel = (kind: string): string =>
   kind === 'five_hour' ? '5-hour' : kind === 'seven_day' ? '7-day' : kind === 'spend_limit' ? 'Spend' : kind.replace(/_/g, ' ')
+
+/** The next local day or hour start after `t`, so the ticks fall on the person's own clock. */
+const nextTick = (kind: string, t: number): number => {
+  const d = new Date(t)
+  return kind === 'seven_day'
+    ? new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime()
+    : new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours() + 1).getTime()
+}
+
+/** The window's tick marks as parts of it, and how much of it has gone by. */
+const clockOf = (kind: string, resetsInMs: number | null, now: number): { elapsed: number | null; ticks: number[] } => {
+  const span = WINDOW_MS[kind]
+  if (span === undefined || resetsInMs === null) return { elapsed: null, ticks: [] }
+  const start = now + resetsInMs - span
+  const ticks: number[] = []
+  for (let t = nextTick(kind, start); t < start + span; t = nextTick(kind, t)) ticks.push((t - start) / span)
+  return { elapsed: Math.min(1, Math.max(0, (now - start) / span)), ticks }
+}
+
+/** Points used past (+) or short of (-) an even spread across the window. */
+const overEven = (p: Pace): number | null => (p.elapsed !== null ? p.pct - p.elapsed * 100 : null)
+
+const evenText = (p: Pace): string | null => {
+  const d = overEven(p)
+  if (d === null) return null
+  const n = Math.round(Math.abs(d))
+  return n === 0 ? 'on even pace' : `${n} pts ${d > 0 ? 'over' : 'under'} even pace`
+}
 
 const paceOf = (l: SessionRateLimit, start: RateStart | undefined, now: number): Pace => {
   const resetsAt = l.resetsAt ? Date.parse(l.resetsAt) : Number.NaN
@@ -42,6 +74,7 @@ const paceOf = (l: SessionRateLimit, start: RateStart | undefined, now: number):
     // A spend limit can pass 100%; a full window has no time left, not a negative one.
     fullInMs: perHour !== null && perHour > 0 ? (Math.max(0, 100 - l.percentUsed) / perHour) * HOUR : null,
     atResetPct: perHour !== null && resetsInMs !== null ? l.percentUsed + (perHour * resetsInMs) / HOUR : null,
+    ...clockOf(l.kind, resetsInMs, now),
   }
 }
 
@@ -49,9 +82,11 @@ const paceTitle = (p: Pace): string =>
   `${p.label} window: ${p.pct}% used` +
   (p.resetsInMs !== null ? `, resets in ${fmtMs(p.resetsInMs)}` : '') +
   (p.perHour !== null ? `, +${p.perHour.toFixed(1)} points an hour this session` : ', pace shows after 10 minutes') +
-  (p.atResetPct !== null ? `, about ${Math.round(Math.min(p.atResetPct, 999))}% at reset if it holds` : '')
+  (p.atResetPct !== null ? `, about ${Math.round(Math.min(p.atResetPct, 999))}% at reset if it holds` : '') +
+  (p.elapsed !== null ? `, ${Math.round(p.elapsed * 100)}% of the window gone, ${evenText(p)}` : '')
 
-/** One row per window: the fill in its level color, and a faint extension to where the pace reaches by the reset. */
+/** One row per window: the fill in its level color, a faint extension to where the pace reaches by the reset, a tick at each
+ * day or hour start, and a marker at now: a fill past the marker uses the window faster than an even spread. */
 const limitsSvg = (w: number, paces: readonly Pace[]): string => {
   const rowH = 20
   const labelW = 56
@@ -69,10 +104,23 @@ const limitsSvg = (w: number, paces: readonly Pace[]): string => {
       `<rect x="${labelW}" y="${y + 6}" width="${barW}" height="8" rx="4" fill="${HEX.track}"/>` +
       (ahead > fw ? `<rect x="${labelW}" y="${y + 6}" width="${ahead.toFixed(1)}" height="8" rx="4" fill="${reach}" opacity="0.3"/>` : '') +
       `<rect x="${labelW}" y="${y + 6}" width="${Math.max(fw, p.pct > 0 ? 8 : 0).toFixed(1)}" height="8" rx="4" fill="${fill}"/>` +
+      p.ticks.map(t => `<rect x="${(labelW + t * barW - 0.5).toFixed(1)}" y="${y + 4}" width="1" height="12" fill="${HEX.rule}"/>`).join('') +
+      (p.elapsed !== null
+        ? `<rect x="${(labelW + p.elapsed * barW - 1).toFixed(1)}" y="${y + 2}" width="2" height="16" rx="1" fill="${HEX.accent}"/>`
+        : '') +
       `<text x="${w}" y="${y + 14}" text-anchor="end" fill="${HEX.muted}" font-size="11" font-variant-numeric="tabular-nums" ${FONT}>${p.pct}%</text></g>`
     )
   })
   return svg(w, Math.max(rowH, paces.length * rowH), rows.join(''))
+}
+
+/** A terminal row under a bar: a tick at each day or hour start and a caret at now, or null with neither. */
+const termMarks = (p: Pace, width: number): string | null => {
+  if (p.elapsed === null) return null
+  const cells = Array.from({ length: width }, () => ' ')
+  for (const t of p.ticks) cells[Math.min(width - 1, Math.floor(t * width))] = '╵'
+  cells[Math.min(width - 1, Math.floor(p.elapsed * width))] = '▲'
+  return ' '.repeat(LABEL) + cells.join('').trimEnd()
 }
 
 /** The rate-limit windows: each fill, when it resets, and a warning when this session's pace fills one before its reset. */
@@ -100,19 +148,27 @@ export const limits: Section = (ui, { m, usage, now }) => {
       ui.chart(limitsSvg(ui.px, paces), `Rate limits: ${paces.map(p => `${p.label} ${p.pct}%`).join(', ')}`)
     ) : (
       <ui.Box flexDirection="column">
-        {paces.map(p => (
+        {paces.map(p => {
           // The label and the bar together fill `cells`, so the row does not wrap.
-          <Text>
-            <Text dimColor>{p.label.slice(0, LABEL - 1).padEnd(LABEL)}</Text>
-            {ui.termBar(p.pct / 100, THEME[level(p.pct)], Math.max(LABEL, ui.cells - LABEL))}
-          </Text>
-        ))}
+          const width = Math.max(LABEL, ui.cells - LABEL)
+          const marks = termMarks(p, width)
+          return (
+            <ui.Box flexDirection="column">
+              <Text>
+                <Text dimColor>{p.label.slice(0, LABEL - 1).padEnd(LABEL)}</Text>
+                {ui.termBar(p.pct / 100, THEME[level(p.pct)], width)}
+              </Text>
+              {marks !== null && <Text dimColor>{marks}</Text>}
+            </ui.Box>
+          )
+        })}
       </ui.Box>
     ),
     ...paces.map(p =>
       ui.caption(
         `${p.label}: ${p.resetsInMs !== null ? `resets in ${fmtMs(p.resetsInMs)}` : 'no reset time'}` +
-          (p.perHour !== null ? ` · +${p.perHour.toFixed(1)} pts/h` : ' · pace after 10 min'),
+          (p.perHour !== null ? ` · +${p.perHour.toFixed(1)} pts/h` : ' · pace after 10 min') +
+          (p.elapsed !== null ? ` · ${evenText(p)}` : ''),
       ),
     ),
   ])

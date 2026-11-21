@@ -5,7 +5,7 @@
 Live session metrics for Claude Code. Pulse tracks each session with hooks and shows the figures in a pane beside the chat and on the hint line under the prompt.
 
 - **Cost and elapsed time** for the session, as the status line counts them, with the cost per hour.
-- **Limits**: the 5-hour and 7-day rate-limit windows on a subscription, when each resets, the pace this session uses them at, and a red warning when that pace fills a window before it resets.
+- **Limits**: the 5-hour and 7-day rate-limit windows on a subscription, when each resets, the pace this session uses them at, a tick at each day or hour start with a marker at now to show whether you are over or under an even spread, and a red warning when that pace fills a window before it resets.
 - **Context** fill as a gauge that turns amber at 60% and red at 80%, a line of the fill after each turn, and a mark at each compaction.
 - **Turns**: time and cost per turn on one chart, with a live bar while a turn runs. Under it: model requests per turn, time to the first token, output tokens per second, effort, server tools, cut replies, and interrupted or failed turns.
 - **Activity**: Claude's working time and your time between turns, with your prompt and slash-command counts.
