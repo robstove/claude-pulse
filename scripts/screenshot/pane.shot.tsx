@@ -126,7 +126,7 @@ test('screenshot session', async ($, on) => {
     component: 'Pane',
     requestId: 'pulse',
     surface: 'desktop',
-    props: { title: 'Pulse', isFocused: false, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 200 }, view: {} },
+    props: { title: 'Pulse', isFocused: false, bodyColumns: 46, placement: 'dock', scroll: { offset: 0, bodyRows: 200 }, view: {} },
   })
   expect(await ui.find({ type: 'Text', text: 'Slowest calls' })).toBeDefined()
   console.log(`PULSE_SCREENSHOT ${JSON.stringify(await ui.drawn())}`)

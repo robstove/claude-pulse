@@ -58,11 +58,12 @@ export type Ui = Kit & {
 /** One part of the pane, drawn from the figures; null or false when it has nothing to show. */
 export type Section = (ui: Ui, d: PaneData) => RenderElement | null | false
 
-// A remote surface counts cells in its code font; about 7px each keeps a chart inside the body.
-const PX_PER_CELL = 7
+// A remote surface counts cells in its code font, and the desktop app's run about 9px. A chart drawn a little wider than the
+// body reaches its right edge: an Svg with no width prop scales down to its slot, never up, so a narrow guess left a gap.
+const PX_PER_CELL = 9
 
 export const makeUi = ({ Box, Text, Svg }: Kit, columns: number): Ui => {
-  const px = Math.max(220, Math.min(720, Math.floor(columns * PX_PER_CELL) - 4))
+  const px = Math.max(220, Math.min(960, Math.floor(columns * PX_PER_CELL)))
   const cells = Math.max(16, columns - 2)
   return {
     Box,
@@ -88,7 +89,7 @@ export const makeUi = ({ Box, Text, Svg }: Kit, columns: number): Ui => {
       </Box>
     ),
     chart: (source, alt, isInteractive = true) =>
-      Svg ? <Svg source={source} alt={alt} width={px} height={heightOf(source)} isInteractive={isInteractive || undefined} /> : null,
+      Svg ? <Svg source={source} alt={alt} height={heightOf(source)} isInteractive={isInteractive || undefined} /> : null,
     termBar: (frac, color, width = cells) => {
       const [filled, empty] = blockBar(frac, width)
       return (
