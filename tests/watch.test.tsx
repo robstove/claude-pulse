@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { callEnded, callStarted, callWaits, progress, quiet, shouldAlert, touch, watchStart } from '../hooks/watch'
+import { fmtMs } from '../hooks/charts'
 import { HINT, PANE, memoryStore } from './kit'
 import type { Dollar, On } from './kit'
 
@@ -254,4 +255,10 @@ test('the sections option draws only the named sections, in its order', { option
   const titles = (await pane.findAll({ type: 'Text', text: /^(Tokens|Limits|Context|Turns|Session cost)$/ })).map(t => t.text)
   expect(titles).toEqual(['Tokens', 'Limits'])
   await pane.unmount()
+})
+
+test('a span past two days reads in days and hours', async () => {
+  expect(fmtMs((175 * 60 + 27) * 60_000)).toBe('7d 7h')
+  expect(fmtMs((54 * 60 + 18) * 60_000)).toBe('2d 6h')
+  expect(fmtMs((47 * 60 + 5) * 60_000)).toBe('47h 5m')
 })

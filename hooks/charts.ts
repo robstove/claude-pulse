@@ -33,7 +33,10 @@ export const fmtMs = (ms: number): string => {
   const s = Math.round(ms / 1_000)
   if (s < 60) return `${s}s`
   const m = Math.floor(s / 60)
-  return m < 60 ? `${m}m ${s % 60}s` : `${Math.floor(m / 60)}h ${m % 60}m`
+  if (m < 60) return `${m}m ${s % 60}s`
+  const h = Math.floor(m / 60)
+  // Past two days the hours read better as days, as a reset or an elapsed week does.
+  return h < 48 ? `${h}h ${m % 60}m` : `${Math.floor(h / 24)}d ${h % 24}h`
 }
 
 export const fmtUsd = (usd: number): string => (usd >= 1 ? `$${usd.toFixed(2)}` : `$${usd.toFixed(4)}`)

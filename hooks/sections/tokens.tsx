@@ -7,7 +7,8 @@ const cacheLine = (ui: Parameters<Section>[0], left: number | null, ttl: number,
   if (left === null) return null
   const again = tokens !== undefined ? `: the next turn writes ${fmtNum(tokens)} tokens to it again` : ''
   if (left === 0) return ui.caption(`Prompt cache expired${again}.`, 'warning')
-  return ui.caption(`Prompt cache warm for ${fmtMs(left)} more`, left <= warnLeadMs(ttl) ? 'warning' : undefined)
+  const shown = left > 120_000 ? `${Math.ceil(left / 60_000)}m` : fmtMs(left)
+  return ui.caption(`Prompt cache warm for ${shown} more`, left <= warnLeadMs(ttl) ? 'warning' : undefined)
 }
 
 /** Cache read, cache write, input, and output as one stacked bar, with each count, and the cache countdown between turns. */

@@ -138,7 +138,7 @@ const spendRow = (days: readonly DaySpend[], y: number, w: number, labelW: numbe
 
 const ROW_H = 20
 
-/** One window's bar: the fill, the pace extension, the day or hour ticks, the now marker, and the percentage. */
+/** One window's bar: the fill, the pace line to where the window reaches by its reset, the day or hour ticks, now, and the percent. */
 const limitRow = (p: Pace, y: number, w: number, labelW: number, barW: number): string => {
   const fill = HEX[level(p.pct)]
   const fw = (Math.min(100, p.pct) / 100) * barW
@@ -148,7 +148,10 @@ const limitRow = (p: Pace, y: number, w: number, labelW: number, barW: number): 
     `<g><title>${esc(paceTitle(p))}</title><rect y="${y}" width="${w}" height="${ROW_H}" fill="transparent"/>` +
     `<text x="0" y="${y + 14}" fill="${HEX.muted}" font-size="11" ${FONT}>${esc(p.label)}</text>` +
     `<rect x="${labelW}" y="${y + 6}" width="${barW}" height="8" rx="4" fill="${HEX.track}"/>` +
-    (ahead > fw ? `<rect x="${labelW}" y="${y + 6}" width="${ahead.toFixed(1)}" height="8" rx="4" fill="${reach}" opacity="0.3"/>` : '') +
+    // The projection is a thin line from the fill's end, so it never reads as used capacity; the fill drawn after covers its start.
+    (ahead > fw
+      ? `<rect x="${(labelW + fw - 4).toFixed(1)}" y="${y + 9}" width="${(ahead - fw + 4).toFixed(1)}" height="2" rx="1" fill="${reach}" opacity="0.85"/>`
+      : '') +
     `<rect x="${labelW}" y="${y + 6}" width="${Math.max(fw, p.pct > 0 ? 8 : 0).toFixed(1)}" height="8" rx="4" fill="${fill}"/>` +
     p.ticks.map(t => `<rect x="${(labelW + t * barW - 0.5).toFixed(1)}" y="${y + 4}" width="1" height="12" fill="${HEX.rule}"/>`).join('') +
     (p.elapsed !== null
@@ -158,7 +161,7 @@ const limitRow = (p: Pace, y: number, w: number, labelW: number, barW: number): 
   )
 }
 
-/** One row per window: the fill in its level color, a faint extension to where the pace reaches by the reset, a tick at each
+/** One row per window: the fill in its level color, a thin line to where the pace reaches by the reset, a tick at each
  * day or hour start, and a marker at now: a fill past the marker uses the window faster than an even spread. */
 const limitsSvg = (w: number, paces: readonly Pace[], daily: Readonly<Record<string, number>>): string => {
   const spendH = 14
@@ -226,12 +229,14 @@ export const limits: Section = (ui, { m, usage, now, daily }) => {
         })}
       </ui.Box>
     ),
-    ...paces.map(p =>
-      ui.caption(
-        `${p.label}: ${p.resetsInMs !== null ? `resets in ${fmtMs(p.resetsInMs)}` : 'no reset time'}` +
-          (p.perHour !== null ? ` · +${p.perHour.toFixed(1)} pts/h` : ' · pace after 10 min') +
-          (p.elapsed !== null ? ` · ${evenText(p)}` : ''),
-      ),
-    ),
+    <ui.Box flexDirection="column">
+      {paces.map(p =>
+        ui.caption(
+          `${p.label}: ${p.resetsInMs !== null ? `resets in ${fmtMs(p.resetsInMs)}` : 'no reset time'}` +
+            (p.perHour !== null ? ` · +${p.perHour.toFixed(1)} pts/h` : ' · pace after 10 min') +
+            (p.elapsed !== null ? ` · ${evenText(p)}` : ''),
+        ),
+      )}
+    </ui.Box>,
   ])
 }

@@ -60,6 +60,29 @@ const backgroundText = (m: Metrics): string => {
     .join(', ')
 }
 
+/** The calls that did not simply run: failed in red, refused in amber, then approval waits and background tasks; null when none. */
+const statusLine = (ui: Ui, m: Metrics) => {
+  const { Text } = ui
+  const parts = [
+    m.toolErrors > 0 ? { text: `${m.toolErrors} failed`, color: 'error' as const } : null,
+    m.toolRefusals > 0 ? { text: `${m.toolRefusals} refused`, color: 'warning' as const } : null,
+    m.toolWaited > 0 ? { text: `${m.toolWaited} with approval ${fmtMs(m.toolWaitMs)}` } : null,
+    // One phrase, so a background task's "failed" never reads as a tool call's red one.
+    backgroundText(m) !== '' ? { text: backgroundText(m) } : null,
+  ].filter(p => p !== null)
+  if (parts.length === 0) return null
+  return (
+    <Text size="caption" tabular>
+      {parts.map((p, i) => (
+        <Text color={'color' in p ? p.color : undefined} dimColor={!('color' in p)}>
+          {i > 0 ? ' · ' : ''}
+          {p.text}
+        </Text>
+      ))}
+    </Text>
+  )
+}
+
 const slowestLines = (ui: Ui, m: Metrics) => {
   const slow = m.slowest.slice(0, 3)
   if (slow.length === 0) return null
@@ -94,33 +117,17 @@ export const tools: Section = (ui, { m, rows }) => {
   const list = Object.entries(m.byTool)
     .filter(([, s]) => s.count > 0)
     .sort((a, b) => b[1].ms - a[1].ms)
-  const background = backgroundText(m)
-  const meta = (
-    <Text size="caption" tabular>
-      <Text dimColor>
-        {m.toolCalls + m.toolRefusals} calls · {fmtMs(m.toolMsTotal)}
-      </Text>
-      {m.toolErrors > 0 && <Text color="error"> · {m.toolErrors} failed</Text>}
-      {m.toolRefusals > 0 && <Text color="warning"> · {m.toolRefusals} refused</Text>}
-      {m.toolWaited > 0 && (
-        <Text dimColor>
-          {' '}
-          · {m.toolWaited} with approval {fmtMs(m.toolWaitMs)}
-        </Text>
-      )}
-      {background !== '' && <Text dimColor> · {background}</Text>}
-    </Text>
-  )
+  const meta = `${m.toolCalls + m.toolRefusals} calls · ${fmtMs(m.toolMsTotal)}`
+  const status = statusLine(ui, m)
   if (list.length === 0) {
-    return ui.section(
-      'Tools',
-      meta,
+    return ui.section('Tools', meta, [
       <Text size="caption" dimColor>
         No tool calls yet.
       </Text>,
-    )
+      status,
+    ])
   }
-  if (ui.Svg) return ui.section('Tools', meta, [ui.chart(toolsSvg(ui.px, list.slice(0, 12)), `Time per tool, ${list.length} tools`), slowestLines(ui, m)])
+  if (ui.Svg) return ui.section('Tools', meta, [ui.chart(toolsSvg(ui.px, list.slice(0, 12)), `Time per tool, ${list.length} tools`), status, slowestLines(ui, m)])
   const top = list[0]?.[1].ms || 1
   return ui.section('Tools', meta, [
     ...list.slice(0, Math.max(3, rows - 24)).map(([name, s]) => (
@@ -132,6 +139,7 @@ export const tools: Section = (ui, { m, rows }) => {
         </Text>
       </Text>
     )),
+    status,
     slowestLines(ui, m),
   ])
 }

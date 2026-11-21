@@ -60,7 +60,7 @@ test('a refused call counts as refused, not as an error, and adds no time', asyn
   expect(await hintLine($)).toContain('2 tools (1 refused)')
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /^2 calls · 3s/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: / · 1 refused/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^1 refused$/ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -89,7 +89,7 @@ test('a call put to a decider counts with no time, so the wait for approval is n
   // The approved call held 5 s for the decision and ran 3 s: all 8 s are wait, and tool time holds only the Read.
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /^2 calls · 3s/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: / · 1 with approval 8s/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^1 with approval 8s$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /failed/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /^Bash +1× approval$/ })).toBeDefined()
   await ui.unmount()
@@ -110,7 +110,7 @@ test('a background task is timed to its notification, which is no prompt of the 
   await $.tool.call({ tool: 'Bash', command: 'npm run build', description: 'Build the app', run_in_background: true, tool_use_id: 'u1' })
 
   const running = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await running.find({ type: 'Text', text: / · 1 in background/ })).toBeDefined()
+  expect(await running.find({ type: 'Text', text: /^1 in background$/ })).toBeDefined()
   await running.unmount()
 
   clock.now += 600_000
@@ -118,7 +118,7 @@ test('a background task is timed to its notification, which is no prompt of the 
   await $.prompt.submit({ text: notice, wait: false, origin: { kind: 'task-notification' } })
 
   const done = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await done.find({ type: 'Text', text: / · 1 background done in 10m 3s, 1 failed/ })).toBeDefined()
+  expect(await done.find({ type: 'Text', text: /^1 background done in 10m 3s, 1 failed$/ })).toBeDefined()
   expect(await done.find({ type: 'Text', text: /Bash \(background\) · Build the app/ })).toBeDefined()
   expect(await done.find({ type: 'Text', text: /^1 prompt/ })).toBeDefined()
   expect(await done.find({ type: 'Text', text: /secret/ })).toBeUndefined()
@@ -134,7 +134,7 @@ test('a background task that was killed counts as stopped, not as failed or done
   await $.prompt.submit({ text: notice, wait: false, origin: { kind: 'task-notification' } })
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: / · 1 background done in 1m 3s, 1 stopped/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^1 background done in 1m 3s, 1 stopped$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /failed/ })).toBeUndefined()
   await ui.unmount()
 })
