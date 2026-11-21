@@ -11,7 +11,14 @@ export type Kit = {
 }
 
 /** The main turn that runs now, as the pane draws it. */
-export type LiveTurn = { ms: number; toolCalls: number }
+export type LiveTurn = {
+  ms: number
+  toolCalls: number
+  /** Time since the turn last moved: a model chunk, a step's end, or a tool call's start or end. */
+  quietMs: number
+  /** The quiet time at which the turn counts as stalled; 0 never. */
+  stallMs: number
+}
 
 export type PaneData = {
   m: Metrics
@@ -25,6 +32,11 @@ export type PaneData = {
   rows: number
   /** The running main turn, or null between turns. */
   live: LiveTurn | null
+  /** Time left before the prompt cache of the last main turn expires; null while a turn runs or before the first ends. */
+  cacheLeftMs: number | null
+  cacheTtlMs: number
+  /** The token count at which auto-compaction runs; null when it is off or not read yet. */
+  compactAt: number | null
 }
 
 type Body = RenderElement | (RenderElement | null | false)[]

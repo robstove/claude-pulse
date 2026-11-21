@@ -71,6 +71,9 @@ const requestsLine = (ui: Ui, m: Metrics) => {
   )
 }
 
+// A turn quiet this long shows its quiet time; it turns amber past the stallMinutes option.
+const QUIET_SHOW_MS = 30_000
+
 /** Main turns that did not end with an answer, in red; nothing when every turn answered. */
 const endsLine = (ui: Ui, m: Metrics) => {
   const r = m.endReasons
@@ -97,6 +100,12 @@ export const turns: Section = (ui, { m, live }) => {
           {' '}
           · {plural(live.toolCalls, 'tool call')}
         </Text>
+        {live.quietMs >= QUIET_SHOW_MS && (
+          <Text color={live.stallMs > 0 && live.quietMs >= live.stallMs ? 'warning' : undefined} dimColor={live.stallMs === 0 || live.quietMs < live.stallMs}>
+            {' '}
+            · quiet {fmtMs(Math.floor(live.quietMs / 1000) * 1000)}
+          </Text>
+        )}
       </Text>
     ) : m.mainTurns === 0 ? (
       'none yet'

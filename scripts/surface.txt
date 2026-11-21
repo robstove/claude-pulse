@@ -1,3 +1,4 @@
+call $.clock.after
 call $.clock.every
 call $.clock.now
 call $.command.register
@@ -11,6 +12,7 @@ call $.store.keys
 call $.store.set
 call $.ui.open
 call $.ui.resolve
+call $.ui.toast
 hook agent.spawn
 hook command.run
 hook prompt.submit

@@ -1,8 +1,17 @@
-import { HEX, fmtNum, stackSvg } from '../charts'
+import { warnLeadMs } from '../cache'
+import { HEX, fmtMs, fmtNum, stackSvg } from '../charts'
 import type { Section } from './ui'
 
-/** Cache read, cache write, input, and output as one stacked bar, with each count. */
-export const tokens: Section = (ui, { m }) => {
+/** Between turns: how long the prompt cache stays warm, and what the next turn writes again once it expires. */
+const cacheLine = (ui: Parameters<Section>[0], left: number | null, ttl: number, tokens: number | undefined) => {
+  if (left === null) return null
+  const again = tokens !== undefined ? `: the next turn writes ${fmtNum(tokens)} tokens to it again` : ''
+  if (left === 0) return ui.caption(`Prompt cache expired${again}.`, 'warning')
+  return ui.caption(`Prompt cache warm for ${fmtMs(left)} more`, left <= warnLeadMs(ttl) ? 'warning' : undefined)
+}
+
+/** Cache read, cache write, input, and output as one stacked bar, with each count, and the cache countdown between turns. */
+export const tokens: Section = (ui, { m, usage, cacheLeftMs, cacheTtlMs }) => {
   const { Box, Text } = ui
   const parts = [
     { value: m.cacheReadTokens, color: HEX.cacheRead, label: 'Cache read' },
@@ -27,5 +36,6 @@ export const tokens: Section = (ui, { m }) => {
         </Box>
       ))}
     </Box>,
+    cacheLine(ui, cacheLeftMs, cacheTtlMs, usage.context.tokens),
   ])
 }

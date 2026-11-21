@@ -2,6 +2,7 @@ import type { Register } from 'claude-code'
 
 import { quietly } from './quietly'
 import { record } from './tally'
+import { callEnded, callStarted, callWaits } from './watch'
 
 type On = Parameters<Register>[0]
 
@@ -22,7 +23,11 @@ export function observeTools(on: On): void {
   // The verdict comes from beneath Pulse: a plugin above that changes it moves that call between tool time and wait time.
   on('tool.check', async ($, e, next) => {
     const verdict = await next(e)
-    if (e.tool_use_id !== undefined && verdict.decision === 'ask') mark(asked, e.tool_use_id)
+    if (e.tool_use_id !== undefined && verdict.decision === 'ask') {
+      mark(asked, e.tool_use_id)
+      // The engine runs tool.check inside tool.call's next, so the call is open in the stall watch by now.
+      callWaits(e.tool_use_id)
+    }
     if (e.tool_use_id !== undefined && verdict.decision === 'deny') mark(denied, e.tool_use_id)
     return verdict
   })
@@ -32,6 +37,9 @@ export function observeTools(on: On): void {
     // Only the engine's dispatch is the model's call; another plugin's $.tool.call is counted apart.
     const caller = next.origin.plugin
     const startedAt = caller === 'engine' ? await quietly(() => $.clock.now()) : undefined
+    // The stall watch holds the main loop's calls; tool.check, which the engine runs inside next, marks one put to a decider.
+    const watched = id !== undefined && startedAt !== undefined && e.agentId === undefined
+    if (watched) callStarted(id, e.tool, startedAt)
     const ran = await next(e)
     const wasAsked = id !== undefined && asked.delete(id)
     const wasDenied = id !== undefined && denied.delete(id)
@@ -40,6 +48,7 @@ export function observeTools(on: On): void {
       return ran
     }
     const endedAt = startedAt === undefined ? undefined : await quietly(() => $.clock.now())
+    if (watched) callEnded(id, endedAt ?? startedAt)
     await record($, {
       kind: 'tool',
       tool: e.tool,

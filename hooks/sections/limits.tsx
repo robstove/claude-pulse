@@ -1,7 +1,8 @@
 import type { SessionRateLimit } from 'claude-code'
 
 import type { RateStart } from '../../types'
-import { FONT, HEX, THEME, esc, fmtMs, level, svg } from '../charts'
+import { FONT, HEX, THEME, esc, fmtMs, fmtUsd, level, svg } from '../charts'
+import { dayKey } from '../ledger'
 import type { Section } from './ui'
 
 /** A pace needs this much history, so one early turn does not project a false limit. */
@@ -27,6 +28,8 @@ type Pace = {
   elapsed: number | null
   /** Where each local day (7-day) or hour (5-hour) starts inside the window, as parts of it. */
   ticks: number[]
+  /** When the window started; null with `elapsed`. */
+  startAt: number | null
 }
 
 const windowLabel = (kind: string): string =>
@@ -41,13 +44,32 @@ const nextTick = (kind: string, t: number): number => {
 }
 
 /** The window's tick marks as parts of it, and how much of it has gone by. */
-const clockOf = (kind: string, resetsInMs: number | null, now: number): { elapsed: number | null; ticks: number[] } => {
+const clockOf = (kind: string, resetsInMs: number | null, now: number): { elapsed: number | null; ticks: number[]; startAt: number | null } => {
   const span = WINDOW_MS[kind]
-  if (span === undefined || resetsInMs === null) return { elapsed: null, ticks: [] }
+  if (span === undefined || resetsInMs === null) return { elapsed: null, ticks: [], startAt: null }
   const start = now + resetsInMs - span
   const ticks: number[] = []
   for (let t = nextTick(kind, start); t < start + span; t = nextTick(kind, t)) ticks.push((t - start) / span)
-  return { elapsed: Math.min(1, Math.max(0, (now - start) / span)), ticks }
+  return { elapsed: Math.min(1, Math.max(0, (now - start) / span)), ticks, startAt: start }
+}
+
+type DaySpend = { from: number; to: number; day: string; usd: number }
+
+/** The spend of each local day of a 7-day window that has begun, placed between its day ticks. */
+const daySpends = (p: Pace, daily: Readonly<Record<string, number>>): DaySpend[] => {
+  const span = WINDOW_MS[p.kind]
+  if (p.kind !== 'seven_day' || p.startAt === null || p.elapsed === null || span === undefined) return []
+  const bounds = [0, ...p.ticks, 1]
+  const start = p.startAt
+  const elapsed = p.elapsed
+  return bounds
+    .slice(0, -1)
+    .map((from, i) => ({ from, to: bounds[i + 1] ?? 1 }))
+    .filter(s => s.from < elapsed)
+    .map(s => {
+      const day = dayKey(start + ((s.from + s.to) / 2) * span)
+      return { ...s, day, usd: daily[day] ?? 0 }
+    })
 }
 
 /** Points used past (+) or short of (-) an even spread across the window. */
@@ -85,33 +107,62 @@ const paceTitle = (p: Pace): string =>
   (p.atResetPct !== null ? `, about ${Math.round(Math.min(p.atResetPct, 999))}% at reset if it holds` : '') +
   (p.elapsed !== null ? `, ${Math.round(p.elapsed * 100)}% of the window gone, ${evenText(p)}` : '')
 
+/** Each day's spend on this machine as a column under its stretch of the 7-day bar, scaled to the largest day. */
+const spendRow = (days: readonly DaySpend[], y: number, labelW: number, barW: number, h: number): string => {
+  const max = Math.max(...days.map(d => d.usd))
+  return days
+    .filter(d => d.usd > 0)
+    .map(d => {
+      const x = labelW + d.from * barW + 1
+      const cw = Math.max(1, (d.to - d.from) * barW - 2)
+      const ch = Math.max(2, (d.usd / max) * (h - 4))
+      return (
+        `<g><title>${esc(`${d.day}: ${fmtUsd(d.usd)} spent by the sessions on this computer`)}</title>` +
+        `<rect x="${x.toFixed(1)}" y="${y}" width="${cw.toFixed(1)}" height="${h}" fill="transparent"/>` +
+        `<rect x="${x.toFixed(1)}" y="${(y + h - 2 - ch).toFixed(1)}" width="${cw.toFixed(1)}" height="${ch.toFixed(1)}" rx="1" fill="${HEX.cost}" opacity="0.7"/></g>`
+      )
+    })
+    .join('')
+}
+
+const ROW_H = 20
+
+/** One window's bar: the fill, the pace extension, the day or hour ticks, the now marker, and the percentage. */
+const limitRow = (p: Pace, y: number, w: number, labelW: number, barW: number): string => {
+  const fill = HEX[level(p.pct)]
+  const fw = (Math.min(100, p.pct) / 100) * barW
+  const ahead = p.atResetPct !== null ? (Math.min(100, p.atResetPct) / 100) * barW : fw
+  const reach = p.atResetPct !== null && p.atResetPct >= 100 ? HEX.bad : fill
+  return (
+    `<g><title>${esc(paceTitle(p))}</title><rect y="${y}" width="${w}" height="${ROW_H}" fill="transparent"/>` +
+    `<text x="0" y="${y + 14}" fill="${HEX.muted}" font-size="11" ${FONT}>${esc(p.label)}</text>` +
+    `<rect x="${labelW}" y="${y + 6}" width="${barW}" height="8" rx="4" fill="${HEX.track}"/>` +
+    (ahead > fw ? `<rect x="${labelW}" y="${y + 6}" width="${ahead.toFixed(1)}" height="8" rx="4" fill="${reach}" opacity="0.3"/>` : '') +
+    `<rect x="${labelW}" y="${y + 6}" width="${Math.max(fw, p.pct > 0 ? 8 : 0).toFixed(1)}" height="8" rx="4" fill="${fill}"/>` +
+    p.ticks.map(t => `<rect x="${(labelW + t * barW - 0.5).toFixed(1)}" y="${y + 4}" width="1" height="12" fill="${HEX.rule}"/>`).join('') +
+    (p.elapsed !== null
+      ? `<rect x="${(labelW + p.elapsed * barW - 1).toFixed(1)}" y="${y + 2}" width="2" height="16" rx="1" fill="${HEX.accent}"/>`
+      : '') +
+    `<text x="${w}" y="${y + 14}" text-anchor="end" fill="${HEX.muted}" font-size="11" font-variant-numeric="tabular-nums" ${FONT}>${p.pct}%</text></g>`
+  )
+}
+
 /** One row per window: the fill in its level color, a faint extension to where the pace reaches by the reset, a tick at each
  * day or hour start, and a marker at now: a fill past the marker uses the window faster than an even spread. */
-const limitsSvg = (w: number, paces: readonly Pace[]): string => {
-  const rowH = 20
+const limitsSvg = (w: number, paces: readonly Pace[], daily: Readonly<Record<string, number>>): string => {
+  const spendH = 14
   const labelW = 56
   const statW = 40
   const barW = w - labelW - statW - 8
-  const rows = paces.map((p, i) => {
-    const y = i * rowH
-    const fill = HEX[level(p.pct)]
-    const fw = (Math.min(100, p.pct) / 100) * barW
-    const ahead = p.atResetPct !== null ? (Math.min(100, p.atResetPct) / 100) * barW : fw
-    const reach = p.atResetPct !== null && p.atResetPct >= 100 ? HEX.bad : fill
-    return (
-      `<g><title>${esc(paceTitle(p))}</title><rect y="${y}" width="${w}" height="${rowH}" fill="transparent"/>` +
-      `<text x="0" y="${y + 14}" fill="${HEX.muted}" font-size="11" ${FONT}>${esc(p.label)}</text>` +
-      `<rect x="${labelW}" y="${y + 6}" width="${barW}" height="8" rx="4" fill="${HEX.track}"/>` +
-      (ahead > fw ? `<rect x="${labelW}" y="${y + 6}" width="${ahead.toFixed(1)}" height="8" rx="4" fill="${reach}" opacity="0.3"/>` : '') +
-      `<rect x="${labelW}" y="${y + 6}" width="${Math.max(fw, p.pct > 0 ? 8 : 0).toFixed(1)}" height="8" rx="4" fill="${fill}"/>` +
-      p.ticks.map(t => `<rect x="${(labelW + t * barW - 0.5).toFixed(1)}" y="${y + 4}" width="1" height="12" fill="${HEX.rule}"/>`).join('') +
-      (p.elapsed !== null
-        ? `<rect x="${(labelW + p.elapsed * barW - 1).toFixed(1)}" y="${y + 2}" width="2" height="16" rx="1" fill="${HEX.accent}"/>`
-        : '') +
-      `<text x="${w}" y="${y + 14}" text-anchor="end" fill="${HEX.muted}" font-size="11" font-variant-numeric="tabular-nums" ${FONT}>${p.pct}%</text></g>`
-    )
+  let y = 0
+  const rows = paces.map(p => {
+    const top = y
+    const days = daySpends(p, daily)
+    const hasSpend = days.some(d => d.usd > 0)
+    y += ROW_H + (hasSpend ? spendH : 0)
+    return limitRow(p, top, w, labelW, barW) + (hasSpend ? spendRow(days, top + ROW_H, labelW, barW, spendH) : '')
   })
-  return svg(w, Math.max(rowH, paces.length * rowH), rows.join(''))
+  return svg(w, Math.max(ROW_H, y), rows.join(''))
 }
 
 /** A terminal row under a bar: a tick at each day or hour start and a caret at now, or null with neither. */
@@ -124,7 +175,7 @@ const termMarks = (p: Pace, width: number): string | null => {
 }
 
 /** The rate-limit windows: each fill, when it resets, and a warning when this session's pace fills one before its reset. */
-export const limits: Section = (ui, { m, usage, now }) => {
+export const limits: Section = (ui, { m, usage, now, daily }) => {
   const paces = usage.rateLimits.map(l => paceOf(l, m.rateStart[l.kind], now))
   if (paces.length === 0) return null
   const { Text } = ui
@@ -145,7 +196,7 @@ export const limits: Section = (ui, { m, usage, now }) => {
   )
   return ui.section('Limits', meta, [
     ui.Svg ? (
-      ui.chart(limitsSvg(ui.px, paces), `Rate limits: ${paces.map(p => `${p.label} ${p.pct}%`).join(', ')}`)
+      ui.chart(limitsSvg(ui.px, paces, daily), `Rate limits: ${paces.map(p => `${p.label} ${p.pct}%`).join(', ')}`)
     ) : (
       <ui.Box flexDirection="column">
         {paces.map(p => {

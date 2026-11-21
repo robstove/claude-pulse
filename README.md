@@ -5,11 +5,11 @@
 Live session metrics for Claude Code. Pulse tracks each session with hooks and shows the figures in a pane beside the chat and on the hint line under the prompt.
 
 - **Cost and elapsed time** for the session, as the status line counts them, with the cost per hour.
-- **Limits**: the 5-hour and 7-day rate-limit windows on a subscription, when each resets, the pace this session uses them at, a tick at each day or hour start with a marker at now to show whether you are over or under an even spread, and a red warning when that pace fills a window before it resets.
-- **Context** fill as a gauge that turns amber at 60% and red at 80%, a line of the fill after each turn, and a mark at each compaction.
-- **Turns**: time and cost per turn on one chart, with a live bar while a turn runs. Under it: model requests per turn, time to the first token, output tokens per second, effort, server tools, cut replies, and interrupted or failed turns.
+- **Limits**: the 5-hour and 7-day rate-limit windows on a subscription, when each resets, the pace this session uses them at, a tick at each day or hour start with a marker at now to show whether you are over or under an even spread, and a red warning when that pace fills a window before it resets. Under the 7-day bar, a column shows what each day of the window cost.
+- **Context** fill as a gauge that turns amber at 60% and red at 80%, a line of the fill after each turn, a mark at each compaction, and the turns left before auto-compaction at the current rate.
+- **Turns**: time and cost per turn on one chart, with a live bar while a turn runs. A turn with no model output or tool call for 30 seconds shows its quiet time, and a toast tells you when it stays quiet past a limit. Under it: model requests per turn, time to the first token, output tokens per second, effort, server tools, cut replies, and interrupted or failed turns.
 - **Activity**: Claude's working time and your time between turns, with your prompt and slash-command counts.
-- **Tokens**: cache read, cache write, input, and output as one stacked bar.
+- **Tokens**: cache read, cache write, input, and output as one stacked bar. Between turns, a countdown shows how long the prompt cache stays warm, and a toast warns before it expires.
 - **Tools**: total time per tool, with failed calls in red, the p50 and p95 time on hover, and the three slowest calls.
 - **Files**: the files that Claude edited, most edited first.
 - **Models**: turns, average time, and tokens for each model, so a `/model` switch shows its own share.
@@ -50,6 +50,9 @@ Set them with `claude plugin configure pulse`, then start a new session.
 | --- | --- | --- |
 | `warnAt` | `60` | the fill, in percent, at which the context and rate-limit meters turn amber |
 | `alertAt` | `80` | the fill at which they turn red; a pair out of order counts as not set |
+| `cacheMinutes` | `0` | how long the prompt cache lasts; `0` guesses 60 minutes on a subscription and 5 with an API key |
+| `stallMinutes` | `3` | the quiet minutes after which a running turn shows a toast; `0` turns the toast off |
+| `sections` | empty | the pane sections to show, in order, separated by commas: `header`, `limits`, `context`, `turns`, `activity`, `tokens`, `tools`, `files`, `models`, `agents`, `history`, `plugins`; empty shows all |
 
 ### Saved data
 
@@ -77,7 +80,13 @@ Pulse makes no network calls and reads no files. CI fails any change that adds s
 
 **Cost.** The cost is Claude Code's own ledger, the same total that `/cost` and the status line show. Claude Code prices each API response in the session, subagents and compaction included, at the model's list price, or at your organization's managed pricing when one is set. On a subscription it is an estimate at API rates, not a bill. Pulse gets the cost of a turn from the change in that total across the turn.
 
-**Limits.** The pace of a rate-limit window shows after 10 minutes of readings in the session.
+**Limits.** The pace of a rate-limit window shows after 10 minutes of readings in the session. The daily columns under the 7-day bar come from the same records as History, so they count only sessions on this computer that ran Pulse.
+
+**Cache.** Claude Code does not tell a plugin how long the prompt cache lasts. Pulse guesses from the session: a subscription session reports rate limits and gets one hour, and an API key gets five minutes. If you set `promptCacheTtl`, `ENABLE_PROMPT_CACHING_1H`, or `FORCE_PROMPT_CACHING_5M`, set `cacheMinutes` to match. The countdown starts when the last model request of the last main turn starts, because the cache clock starts there. The toast comes one minute before a 5-minute cache expires and five minutes before a 1-hour cache expires, and only when the context holds 10,000 tokens or more.
+
+**Runway.** The turns left before auto-compaction are the mean growth of the context fill over the last 8 turns since the last compaction. Pulse shows them after 3 such turns, and only while the fill grows and auto-compaction is on.
+
+**Stalls.** A turn is quiet while no model output arrives and no tool call starts or ends. While a call waits for a permission decision, the turn does not count as quiet, because the wait can be yours. In auto mode the classifier decides most calls that write, so the toast does not show for those calls. The toast shows once for each quiet stretch.
 
 **Activity.** Task notifications, schedules, and messages from other sessions are not your prompts and do not count.
 

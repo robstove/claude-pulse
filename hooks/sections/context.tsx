@@ -1,4 +1,4 @@
-import type { Compaction, TurnRecord } from '../../types'
+import type { Compaction, Metrics, TurnRecord } from '../../types'
 import { FONT, HEX, THEME, esc, fmtNum, level, svg } from '../charts'
 import { levels } from '../state'
 import type { Section } from './ui'
@@ -60,14 +60,38 @@ const contextSvg = (w: number, turns: readonly TurnRecord[], firstTurn: number, 
   )
 }
 
-/** The context fill as a gauge, and its fill after each turn with the compactions marked. */
-export const context: Section = (ui, { m, usage, live }) => {
+// The growth is the mean over this many of the newest turns, and needs this many readings, so one large turn does not decide it.
+const RUNWAY_TURNS = 8
+const RUNWAY_MIN = 3
+
+/** Main turns left before auto-compaction at the mean growth per turn since the last compaction; null when it cannot be told. */
+export const turnsToCompact = (m: Metrics, pct: number | undefined, window: number, compactAt: number | null): number | null => {
+  if (pct === undefined || compactAt === null || window <= 0) return null
+  const firstTurn = m.mainTurns - m.turns.length + 1
+  const since = m.compactions.at(-1)?.turn ?? 0
+  const fills = m.turns
+    .map((t, i) => ({ turn: firstTurn + i, pct: t.contextPct }))
+    .filter((t): t is { turn: number; pct: number } => t.turn > since && t.pct !== null)
+    .slice(-RUNWAY_TURNS)
+  if (fills.length < RUNWAY_MIN) return null
+  const first = fills[0]
+  const last = fills.at(-1)
+  if (first === undefined || last === undefined) return null
+  // Over the span of turns, not the readings, so a turn with no reading between two does not double the growth.
+  const growth = (last.pct - first.pct) / (last.turn - first.turn)
+  const left = (compactAt / window) * 100 - pct
+  return growth > 0 ? Math.max(0, Math.floor(left / growth)) : null
+}
+
+/** The context fill as a gauge, its fill after each turn with the compactions marked, and the turns left before auto-compaction. */
+export const context: Section = (ui, { m, usage, live, compactAt }) => {
   const { Text } = ui
   // Unknown until the first response of a fresh or just-compacted window: drawn as '-' with an empty meter, not as a safe 0%.
   const known = usage.context.percent
   const pct = known ?? 0
   const lvl = level(pct)
   const firstTurn = m.mainTurns - m.turns.length + 1
+  const runway = turnsToCompact(m, known, usage.context.window, compactAt)
   return ui.section(
     'Context',
     <Text size="caption" tabular>
@@ -87,6 +111,11 @@ export const context: Section = (ui, { m, usage, live }) => {
       ui.Svg && m.turns.some(t => t.contextPct !== null)
         ? ui.chart(contextSvg(ui.px, m.turns, firstTurn, m.compactions, live !== null), 'Context fill per turn')
         : null,
+      runway !== null &&
+        ui.caption(
+          runway === 0 ? 'Auto-compact runs at the next turn.' : `About ${runway === 1 ? '1 turn' : `${runway} turns`} to auto-compact at this rate.`,
+          runway <= 2 ? 'warning' : undefined,
+        ),
     ],
   )
 }

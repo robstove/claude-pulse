@@ -147,6 +147,8 @@ declare module 'claude-code' {
       costs: Record<string, number>
       /** Counts the running turn's ticks; the pane reads it, so a tick redraws the pane and nothing else. */
       tick: number
+      /** Counts the ticks between turns while the prompt cache counts down; the pane and the prompt hint read it. */
+      idleTick: number
     }
   }
 }

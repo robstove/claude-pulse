@@ -2,8 +2,13 @@ import type { Register } from 'claude-code'
 
 import { quietly } from './quietly'
 import { record } from './tally'
+import { requestStarted } from './cache'
+import { callEnded, callStarted, callWaits, progress, touch } from './watch'
 
 type On = Parameters<Register>[0]
+
+// The stall watch's key for a running compaction; no tool_use_id takes this form.
+const COMPACTION = 'pulse:compaction'
 
 /** Hooks that only watch: subagent starts, compactions, prompts, and each model request. Each passes its event on unchanged. */
 export function observe(on: On): void {
@@ -16,9 +21,23 @@ export function observe(on: On): void {
   })
 
   on('session.compact', async ($, e, next) => {
-    const r = await next(e)
+    // A main compaction inside a turn is work, not a stall: the stall watch holds it open as a waiting call while it runs. A
+    // precompute runs beside the turn, so it holds nothing; a compaction that fails still ends the hold.
+    const holds = e.agentId === undefined && e.trigger !== 'precompute'
+    const began = holds ? await quietly(() => $.clock.now()) : undefined
+    if (began !== undefined) {
+      callStarted(COMPACTION, 'Compaction', began)
+      callWaits(COMPACTION)
+    }
+    let at: number | undefined
+    let r: Awaited<ReturnType<typeof next>>
+    try {
+      r = await next(e)
+    } finally {
+      at = await quietly(() => $.clock.now())
+      if (began !== undefined) callEnded(COMPACTION, at ?? began)
+    }
     const done = r.skip === undefined ? r : undefined
-    const at = await quietly(() => $.clock.now())
     if (at !== undefined) {
       await record($, {
         kind: 'compaction',
@@ -46,6 +65,7 @@ export function observe(on: On): void {
 
   on('turn.step', async function* ($, e, next) {
     const startedAt = await quietly(() => $.clock.now())
+    if (startedAt !== undefined && e.agentId === undefined) requestStarted(startedAt)
     let firstAt: number | null = null
     // After one failed clock read the step stops its timing, so a broken clock costs one try, not one per chunk.
     let timing = startedAt !== undefined
@@ -57,15 +77,20 @@ export function observe(on: On): void {
         if (at === undefined) timing = false
         else firstAt = at
       }
+      // Any chunk shows the turn moves, a server tool's engine chunks and a subagent's too; the stall check reads the clock, so a
+      // chunk costs no clock read.
+      touch()
       yield chunk
     }
     const r = await stream.result
+    const endedAt = await quietly(() => $.clock.now())
+    if (endedAt !== undefined) progress(endedAt)
     await record($, {
       kind: 'step',
       agentId: e.agentId,
       startedAt,
       firstAt,
-      endedAt: await quietly(() => $.clock.now()),
+      endedAt,
       output: r.usage?.output_tokens ?? 0,
       serverTools: (r.serverToolUses ?? []).map(u => u.name),
       stopReason: r.stopReason,

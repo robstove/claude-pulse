@@ -15,6 +15,24 @@
       "title": "Red at",
       "default": 80,
       "description": "The fill, in percent, at which the context and rate-limit meters turn red. Must be above Amber at and at most 100."
+    },
+    "cacheMinutes": {
+      "type": "number",
+      "title": "Cache minutes",
+      "default": 0,
+      "description": "How long the prompt cache lasts, in minutes. 0 guesses: 60 on a subscription, 5 with an API key."
+    },
+    "stallMinutes": {
+      "type": "number",
+      "title": "Stall alert after",
+      "default": 3,
+      "description": "Minutes with no model output or tool call before a running turn shows a toast. 0 turns the alert off."
+    },
+    "sections": {
+      "type": "string",
+      "title": "Sections",
+      "default": "",
+      "description": "The pane sections to show, in order, separated by commas: header, limits, context, turns, activity, tokens, tools, files, models, agents, history, plugins. Empty shows all."
     }
   },
   "author": {

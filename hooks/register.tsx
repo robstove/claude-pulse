@@ -1,21 +1,25 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, Timer } from 'claude-code'
 
+import { cacheLeftMs, cacheTtlMs, resetRequest, warnLeadMs } from './cache'
+import { fmtMs, fmtNum } from './charts'
 import { refreshCosts } from './ledger'
 import { observe } from './observe'
 import { drawPane } from './pane'
 import { quietly } from './quietly'
 import { adopt, clear, convertSaves, persist } from './save'
-import { EMPTY, SHAPE, setLevels } from './state'
+import { EMPTY, SHAPE, prefs, setLevels, setPrefs } from './state'
 import { statusText } from './status'
 import { costSince, record } from './tally'
 import { observeTools } from './tools'
 import { VERSION } from './version'
+import { quiet, shouldAlert, watchStart, watchStop } from './watch'
 
 // The state scan reads an atom only where its file declares it, so each file that reads or writes Metrics declares the same one.
 const metrics = atom({ plugin: 'pulse', key: 'metrics' } as const, EMPTY, { shape: SHAPE })
 const costs = atom({ plugin: 'pulse', key: 'costs' } as const, {} as Record<string, number>)
 const tick = atom({ plugin: 'pulse', key: 'tick' } as const, 0)
+const idleTick = atom({ plugin: 'pulse', key: 'idleTick' } as const, 0)
 
 const PANE = 'pulse'
 // The version in the title tells the person which Pulse runs, so an update shows.
@@ -23,17 +27,46 @@ const TITLE = `Pulse ${VERSION}`
 // The running bar ticks each second for the first two minutes of a turn, then every fifth second.
 const FAST_TICKS = 120
 const SLOW_TICK_MS = 5_000
+// Between turns the cache countdown redraws the pane and the prompt hint this often, until the cache expires.
+const IDLE_TICK_MS = 15_000
+// A cache this small costs little to write again, so its expiry gets no toast.
+const WARN_TOKENS = 10_000
 
-// The timer that redraws the pane while a main turn runs; a reload starts without one, and the next turn starts it.
-let ticker: { cancel: () => void } | undefined
+// The timers that redraw the pane: while a main turn runs, and between turns until the cache expires. A reload starts
+// without them, and the next turn starts them.
+let ticker: Timer | undefined
+let idle: Timer[] = []
+// The token count at which auto-compaction runs, read at each main turn's end; null when it is off or unknown.
+let compactAt: number | null = null
 
 const stopTicker = (): void => {
   ticker?.cancel()
   ticker = undefined
+  for (const t of idle) t.cancel()
+  idle = []
 }
 
-// A tick redraws only what reads it: the pane. The prompt hint shows nothing that moves with the clock.
+// A tick redraws only what reads it: the pane. The idle tick also redraws the prompt hint, whose cache countdown moves between turns.
 const bump = ($: EngineInterface): void => void quietly(() => update($, tick, n => n + 1))
+const bumpIdle = ($: EngineInterface): void => {
+  bump($)
+  void quietly(() => update($, idleTick, n => n + 1))
+}
+
+const stallText = (now: number): string => {
+  const q = quiet(now)
+  const call = q?.call
+  return call !== undefined && q !== null && call.ms >= q.ms
+    ? `Pulse: ${call.tool} has run for ${fmtMs(call.ms)}.`
+    : `Pulse: no model output or tool call for ${fmtMs(q?.ms ?? 0)}.`
+}
+
+// Each tick of a running turn checks whether it went quiet past the stallMinutes option, and says so once.
+const checkStall = ($: EngineInterface): void =>
+  void quietly(async () => {
+    const now = await $.clock.now()
+    if (shouldAlert(now, prefs.stallMinutes * 60_000)) $.ui.toast(stallText(now), { timeoutMs: 10_000 })
+  })
 
 // The ticks keep the elapsed time, cost, and running bar current while the model streams; a state write redraws on its own.
 // After the fast window one slower timer takes over, so no period passes without a redraw.
@@ -42,15 +75,38 @@ const startTicker = ($: EngineInterface): void => {
   ticker = $.clock.every(1000, () => {
     ticks += 1
     bump($)
+    checkStall($)
     if (ticks < FAST_TICKS) return
     stopTicker()
-    ticker = $.clock.every(SLOW_TICK_MS, () => bump($))
+    ticker = $.clock.every(SLOW_TICK_MS, () => {
+      bump($)
+      checkStall($)
+    })
   })
+}
+
+// After a main turn the cache counts down: a redraw every IDLE_TICK_MS, a toast before it expires, and one last redraw at expiry.
+// Each timer joins `idle` as it starts, so a failed start leaves none that stopTicker cannot cancel.
+const startIdle = ($: EngineInterface, leftMs: number, ttlMs: number, tokens: number | undefined): void => {
+  if (leftMs <= 0) return
+  idle.push($.clock.every(IDLE_TICK_MS, () => bumpIdle($)))
+  idle.push(
+    $.clock.after(leftMs, () => {
+      stopTicker()
+      bumpIdle($)
+    }),
+  )
+  const lead = warnLeadMs(ttlMs)
+  if (tokens !== undefined && tokens >= WARN_TOKENS && leftMs > lead) {
+    const text = `Pulse: the prompt cache expires in ${fmtMs(lead)}. After that, the next turn writes ${fmtNum(tokens)} tokens to the cache again.`
+    idle.push($.clock.after(leftMs - lead, () => void quietly(async () => $.ui.toast(text, { timeoutMs: 15_000 }))))
+  }
 }
 
 // Every engine call goes through quietly: a hook passes its event on and returns what came back, whatever Pulse fails at.
 export const register: Register = (on, options) => {
   setLevels(options)
+  setPrefs(options)
   observe(on)
   observeTools(on)
 
@@ -67,6 +123,10 @@ export const register: Register = (on, options) => {
 
   // What changed after the last turn (a /compact, a prompt count, spend by a background agent) reaches the store here.
   on('session.end', async ($, e, next) => {
+    // The timers belong to the conversation that ends; after /clear or a resume they would warn about a cache that is gone.
+    stopTicker()
+    watchStop()
+    resetRequest()
     await quietly(async () => {
       const now = await $.clock.now()
       const costNow = (await quietly(() => $.session.usage()))?.cost?.usd ?? null
@@ -91,7 +151,9 @@ export const register: Register = (on, options) => {
     if (e.agentId === undefined) {
       await quietly(() => adopt($))
       stopTicker()
+      resetRequest()
       const now = await quietly(() => $.clock.now())
+      if (now !== undefined) watchStart(now)
       // A notification that wakes an idle session starts a turn; the task it reports on ends here.
       if (now !== undefined) await record($, { kind: 'notice', text: e.text, now })
       await record($, { kind: 'turn-start', now })
@@ -103,9 +165,18 @@ export const register: Register = (on, options) => {
 
   on('turn.complete', async ($, e, next) => {
     const isMain = e.agentId === undefined
-    if (isMain) stopTicker()
+    if (isMain) {
+      stopTicker()
+      watchStop()
+    }
     const now = await quietly(() => $.clock.now())
     const s = isMain ? await quietly(() => $.session.usage()) : undefined
+    // The summary breakdown is counted locally and sends no request; it is the one place the auto-compact point shows. It is a
+    // call of its own, so a failed estimate costs the runway only, not the turn's figures.
+    if (isMain) {
+      const b = (await quietly(() => $.session.usage({ breakdown: 'summary' })))?.context.breakdown
+      if (b !== undefined) compactAt = b.isAutoCompactEnabled ? (b.autoCompactThreshold ?? null) : null
+    }
     const session = s === undefined ? undefined : { costUsd: s.cost?.usd ?? null, contextPct: s.context.percent ?? null, rateLimits: s.rateLimits }
     const m = await record($, {
       kind: 'turn-end',
@@ -119,13 +190,21 @@ export const register: Register = (on, options) => {
     })
     // A subagent turn runs inside a main turn, whose end saves its figures too.
     if (isMain && m !== undefined && now !== undefined) await persist($, m, now, m.turns.at(-1)?.costUsd ?? null)
+    if (isMain && s !== undefined && now !== undefined && m !== undefined) {
+      const left = cacheLeftMs(m, s, now)
+      if (left !== null) await quietly(async () => startIdle($, left, cacheTtlMs(s), s.context.tokens))
+    }
 
     return next(e)
   })
 
   // The summary rides on the hint line under the prompt, because $.ui.status labels it with the plugin name.
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
-    const line = await quietly(async () => statusText(await read($, metrics), await $.session.usage()))
+    const line = await quietly(async () => {
+      // Reading the idle tick subscribes the hint to the cache countdown, which moves between turns only.
+      await read($, idleTick)
+      return statusText(await read($, metrics), await $.session.usage(), await $.clock.now())
+    })
     if (line === undefined) return next(e)
     // A tail that reaches Pulse came from a plugin above it, so Pulse adds to it.
     if (e.surface === 'terminal') return next({ ...e, props: { ...e.props, tail: `${e.props.tail ?? ''}  ${line}` } })
@@ -151,6 +230,7 @@ export const register: Register = (on, options) => {
       await read($, tick)
       const m = await read($, metrics)
       const { startedAt, toolCalls } = m.running
+      const q = quiet(now)
 
       return drawPane(
         { Box: table.Box, Text: table.Text, Svg },
@@ -160,7 +240,10 @@ export const register: Register = (on, options) => {
           now,
           daily: await read($, costs),
           elapsedMs: now - usage.startedAt,
-          live: startedAt !== null ? { ms: now - startedAt, toolCalls } : null,
+          live: startedAt !== null ? { ms: now - startedAt, toolCalls, quietMs: q?.ms ?? 0, stallMs: prefs.stallMinutes * 60_000 } : null,
+          cacheLeftMs: cacheLeftMs(m, usage, now),
+          cacheTtlMs: cacheTtlMs(usage),
+          compactAt,
           columns: e.props.bodyColumns ?? 40,
           rows: e.viewport?.rows ?? 40,
         },
