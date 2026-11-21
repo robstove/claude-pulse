@@ -107,10 +107,21 @@ const paceTitle = (p: Pace): string =>
   (p.atResetPct !== null ? `, about ${Math.round(Math.min(p.atResetPct, 999))}% at reset if it holds` : '') +
   (p.elapsed !== null ? `, ${Math.round(p.elapsed * 100)}% of the window gone, ${evenText(p)}` : '')
 
-/** Each day's spend on this machine as a column under its stretch of the 7-day bar, scaled to the largest day. */
-const spendRow = (days: readonly DaySpend[], y: number, labelW: number, barW: number, h: number): string => {
+/** Whole dollars from $10, so the window's total fits the percent column beside the bars. */
+const fmtTotal = (usd: number): string => (usd >= 10 ? `$${Math.round(usd)}` : `$${usd.toFixed(2)}`)
+
+/** Each day's spend on this machine as a column under its stretch of the 7-day bar, scaled to the largest day, with the total. */
+const spendRow = (days: readonly DaySpend[], y: number, w: number, labelW: number, barW: number, h: number): string => {
   const max = Math.max(...days.map(d => d.usd))
-  return days
+  const total = days.reduce((s, d) => s + d.usd, 0)
+  const text = (x: number, anchor: string, body: string) =>
+    `<text x="${x}" y="${y + h - 3}" text-anchor="${anchor}" fill="${HEX.muted}" font-size="10" font-variant-numeric="tabular-nums" ${FONT}>${body}</text>`
+  const label =
+    `<g><title>${esc(`${fmtUsd(total)} spent in this 7-day window by the sessions on this computer`)}</title>` +
+    text(0, 'start', 'Spend') +
+    text(w, 'end', esc(fmtTotal(total))) +
+    '</g>'
+  return label + days
     .filter(d => d.usd > 0)
     .map(d => {
       const x = labelW + d.from * barW + 1
@@ -160,7 +171,7 @@ const limitsSvg = (w: number, paces: readonly Pace[], daily: Readonly<Record<str
     const days = daySpends(p, daily)
     const hasSpend = days.some(d => d.usd > 0)
     y += ROW_H + (hasSpend ? spendH : 0)
-    return limitRow(p, top, w, labelW, barW) + (hasSpend ? spendRow(days, top + ROW_H, labelW, barW, spendH) : '')
+    return limitRow(p, top, w, labelW, barW) + (hasSpend ? spendRow(days, top + ROW_H, w, labelW, barW, spendH) : '')
   })
   return svg(w, Math.max(ROW_H, y), rows.join(''))
 }

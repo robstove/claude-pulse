@@ -240,6 +240,8 @@ test("the 7-day bar draws each day's spend between its day ticks", async ($, on)
   const charts = await pane.findAll({ type: 'Svg' })
   const limits = charts.find(c => String(c.props.alt).startsWith('Rate limits'))
   expect(String(limits?.props.source)).toContain('2026-11-13: $2.00 spent by the sessions on this computer')
+  expect(String(limits?.props.source)).toContain('>Spend</text>')
+  expect(String(limits?.props.source)).toContain('>$2.00</text>')
   await pane.unmount()
 })
 
