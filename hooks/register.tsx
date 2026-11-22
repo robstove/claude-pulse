@@ -24,6 +24,7 @@ const metrics = atom({ plugin: 'pulse', key: 'metrics' } as const, EMPTY, { shap
 const costs = atom({ plugin: 'pulse', key: 'costs' } as const, {} as Record<string, number>)
 const tick = atom({ plugin: 'pulse', key: 'tick' } as const, 0)
 const idleTick = atom({ plugin: 'pulse', key: 'idleTick' } as const, 0)
+const compacting = atom({ plugin: 'pulse', key: 'compactingSince' } as const, null as number | null)
 
 const PANE = 'pulse'
 // The version in the title tells the person which Pulse runs, so an update shows.
@@ -244,6 +245,7 @@ export const register: Register = (on, options) => {
       // Reading the tick subscribes the pane to it, so the running turn's clock moves.
       await read($, tick)
       const m = await read($, metrics)
+      const compactingSince = await read($, compacting)
       const { startedAt, toolCalls } = m.running
       const q = quiet(now)
 
@@ -275,6 +277,7 @@ export const register: Register = (on, options) => {
           cacheLeftMs: cacheLeftMs(m, usage, now),
           cacheTtlMs: cacheTtlMs(usage),
           compactAt,
+          compactingMs: compactingSince === null ? null : Math.max(0, now - compactingSince),
           columns: e.props.bodyColumns ?? 40,
           rows: e.viewport?.rows ?? 40,
         },

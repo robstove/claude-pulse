@@ -154,6 +154,8 @@ declare module 'claude-code' {
       idleTick: number
       /** The day, level, and budget at which the person hid the budget band; the band shows again past them. */
       budgetHidden: BudgetMark | null
+      /** When the running main compaction started; null when none runs. The pane reads it, so a start and an end redraw it. */
+      compactingSince: number | null
     }
   }
 }

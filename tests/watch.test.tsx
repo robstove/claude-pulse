@@ -179,6 +179,76 @@ test('a compaction inside a turn is no stall, however long it runs', async ($, o
   expect(toasts).toEqual([])
 })
 
+// /compact as the person types it in the terminal.
+const COMPACT = { command: 'compact', args: '', origin: { kind: 'composer' as const }, presentation: { isFullscreen: false, columns: 80 } }
+
+// The context caption of the pane: the compaction count, the tokens, and the fill.
+const contextLine = async ($: Dollar) => {
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const text = (await pane.find({ type: 'Text', text: / \/ 200\.0k/ }))?.text
+  await pane.unmount()
+  return text
+}
+
+test('a /compact between turns redraws the context with its estimate, though a policy plugin keeps session.compact from Pulse', async ($, on) => {
+  const { state } = engine(on)
+  // The engine's /compact, with no session.compact raise: the policy plugin passes that event past user plugins. As live on
+  // 2.1.326, the API count stays set (the compaction request's own count), and only the local count shrinks.
+  on('command.run', { command: 'compact' }, () => {
+    state.estimate = 30_000
+    return { text: 'Compacted' }
+  })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await turn($, 't1')
+  await $.command.run(COMPACT)
+  expect(await contextLine($)).toBe('1 compacted · ~30.0k / 200.0k  ~15%')
+  // The next response counts the window, and the estimate goes.
+  state.tokens = 40_000
+  state.percent = 20
+  await turn($, 't2')
+  expect(await contextLine($)).toBe('1 compacted · 40.0k / 200.0k  20%')
+})
+
+test('the context says it compacts while /compact runs, and stops when it ends', async ($, on) => {
+  const { state } = engine(on)
+  let during: string | undefined
+  on('command.run', { command: 'compact' }, async () => {
+    during = await contextLine($)
+    state.estimate = 30_000
+    return { text: 'Compacted' }
+  })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await turn($, 't1')
+  await $.command.run(COMPACT)
+  expect(during).toBe('50.0k / 200.0k  compacting…')
+  expect(await contextLine($)).toBe('1 compacted · ~30.0k / 200.0k  ~15%')
+})
+
+test('a /compact that fails records no compaction', async ($, on) => {
+  engine(on)
+  on('command.run', { command: 'compact' }, () => ({ text: 'Error: Not enough messages to compact.' }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await turn($, 't1')
+  await $.command.run(COMPACT)
+  expect(await contextLine($)).toBe('50.0k / 200.0k  25%')
+})
+
+test('where session.compact reaches Pulse, a /compact counts once and shows the size the compaction reports', async ($, on) => {
+  const { state } = engine(on)
+  on('session.compact', () => ({ messages: [{ role: 'user' as const, text: 'summary', toolUses: [] }], tokensBefore: 150_000, tokensAfter: 20_000 }))
+  on('command.run', { command: 'compact' }, async () => {
+    const summary = { role: 'user' as const, text: 'summary', toolUses: [] }
+    await $.session.compact({ trigger: 'manual', messages: [summary, summary] })
+    state.tokens = undefined
+    state.percent = undefined
+    return { text: 'Compacted' }
+  })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await turn($, 't1')
+  await $.command.run(COMPACT)
+  expect(await contextLine($)).toBe('1 compacted · ~20.0k / 200.0k  ~10%')
+})
+
 test("the 7-day bar draws each day's spend between its day ticks", async ($, on) => {
   const { state } = engine(on)
   state.limits = [{ kind: 'seven_day', percentUsed: 40, resetsAt: new Date(state.now + 3 * 24 * 3_600_000).toISOString() }]

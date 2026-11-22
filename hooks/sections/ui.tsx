@@ -43,6 +43,8 @@ export type PaneData = {
   cacheTtlMs: number
   /** The token count at which auto-compaction runs; null when it is off or not read yet. */
   compactAt: number | null
+  /** How long the running main compaction has run; null when none runs. */
+  compactingMs: number | null
 }
 
 type Body = RenderElement | (RenderElement | null | false)[]

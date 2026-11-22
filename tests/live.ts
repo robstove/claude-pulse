@@ -7,7 +7,7 @@ export type Limit = { kind: string; percentUsed: number; resetsAt?: string }
 
 // The engine answers these tests share; `state` moves the clock, the context, and the limits, and `afters` holds each one-shot timer.
 export const engine = (on: On) => {
-  const state = { now: Date.UTC(2026, 10, 13, 12), tokens: 50_000, percent: 25, limits: [] as Limit[], compactAt: 160_000 as number | undefined, cost: 0.5 }
+  const state = { now: Date.UTC(2026, 10, 13, 12), tokens: 50_000 as number | undefined, percent: 25 as number | undefined, estimate: 50_000, limits: [] as Limit[], compactAt: 160_000 as number | undefined, cost: 0.5 }
   const afters: number[] = []
   const toasts: string[] = []
   const store = memoryStore(on)
@@ -32,8 +32,8 @@ export const engine = (on: On) => {
         tokens: state.tokens,
         window: 200_000,
         percent: state.percent,
-        // Pulse reads only these two fields of the breakdown.
-        breakdown: { isAutoCompactEnabled: state.compactAt !== undefined, autoCompactThreshold: state.compactAt } as never,
+        // Pulse reads only these three fields of the breakdown.
+        breakdown: { isAutoCompactEnabled: state.compactAt !== undefined, autoCompactThreshold: state.compactAt, totalTokens: state.estimate } as never,
       },
       rateLimits: state.limits,
       cost: { usd: state.cost },

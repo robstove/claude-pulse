@@ -1,4 +1,5 @@
-import type { Register } from 'claude-code'
+import { atom, update } from 'claude-code'
+import type { EngineInterface, Register } from 'claude-code'
 
 import { quietly } from './quietly'
 import { record } from './tally'
@@ -9,6 +10,13 @@ type On = Parameters<Register>[0]
 
 // The stall watch's key for a running compaction; no tool_use_id takes this form.
 const COMPACTION = 'pulse:compaction'
+
+// Set when the session.compact hook records a main compaction, so the /compact hook does not record it a second time.
+let compactSeen = false
+
+// The pane draws a running main compaction from this: its start time, or null when none runs.
+const compacting = atom({ plugin: 'pulse', key: 'compactingSince' } as const, null as number | null)
+const markCompacting = ($: EngineInterface, since: number | null): Promise<unknown> => quietly(() => update($, compacting, () => since))
 
 /** Hooks that only watch: subagent starts, compactions, prompts, and each model request. Each passes its event on unchanged. */
 export function observe(on: On): void {
@@ -28,6 +36,7 @@ export function observe(on: On): void {
     if (began !== undefined) {
       callStarted(COMPACTION, 'Compaction', began, '', 'compact')
       callWaits(COMPACTION)
+      await markCompacting($, began)
     }
     let at: number | undefined
     let r: Awaited<ReturnType<typeof next>>
@@ -35,9 +44,13 @@ export function observe(on: On): void {
       r = await next(e)
     } finally {
       at = await quietly(() => $.clock.now())
-      if (began !== undefined) callEnded(COMPACTION, at ?? began)
+      if (began !== undefined) {
+        callEnded(COMPACTION, at ?? began)
+        await markCompacting($, null)
+      }
     }
     const done = r.skip === undefined ? r : undefined
+    if (e.agentId === undefined && e.trigger !== 'precompute') compactSeen = true
     if (at !== undefined) {
       await record($, {
         kind: 'compaction',
@@ -48,6 +61,31 @@ export function observe(on: On): void {
         tokensBefore: done?.tokensBefore,
         tokensAfter: done?.tokensAfter,
       })
+    }
+    return r
+  })
+
+  // A policy plugin (cc-plugin-sec-default) keeps session.compact from user plugins, but command.run still reaches Pulse, and its
+  // next resolves once /compact ends. The new window has no API count until its first response, so the local estimate stands in.
+  on('command.run', { command: 'compact' }, async ($, e, next) => {
+    compactSeen = false
+    // The local count, as the API count can stay set after /compact (the compaction request's own count, live 2.1.326).
+    const before = (await quietly(() => $.session.usage({ breakdown: 'summary' })))?.context.breakdown?.totalTokens
+    const began = await quietly(() => $.clock.now())
+    if (began !== undefined) await markCompacting($, began)
+    let r: Awaited<ReturnType<typeof next>>
+    try {
+      r = await next(e)
+    } finally {
+      await markCompacting($, null)
+    }
+    if (compactSeen) return r
+    const after = await quietly(() => $.session.usage({ breakdown: 'summary' }))
+    const at = await quietly(() => $.clock.now())
+    // A compaction that stands shrinks the local count; one that failed or found nothing to compact leaves it.
+    const tokensAfter = after?.context.breakdown?.totalTokens
+    if (at !== undefined && tokensAfter !== undefined && (before === undefined || tokensAfter < before)) {
+      await record($, { kind: 'compaction', at, trigger: 'manual', isSkipped: false, tokensBefore: before, tokensAfter })
     }
     return r
   })

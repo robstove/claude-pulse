@@ -1,6 +1,7 @@
 import type { Compaction, Metrics, TurnRecord } from '../../types'
 import { FONT, HEX, THEME, esc, fmtNum, level, svg } from '../charts'
 import { levels } from '../state'
+import { stillWhenReduced, sweepCss } from './turns'
 import type { Section } from './ui'
 
 /** A thin gauge filled to `pct` in its status color, with ticks at the warn and bad thresholds. */
@@ -15,6 +16,24 @@ const gaugeSvg = (w: number, pct: number): string => {
     `<rect width="${w}" height="${h}" rx="${h / 2}" fill="${HEX.track}"/>` +
       `<rect width="${Math.max(fw, pct > 0 ? h : 0).toFixed(1)}" height="${h}" rx="${h / 2}" fill="${fill}"/>` +
       ticks.join(''),
+  )
+}
+
+/** The gauge while a compaction runs: the last fill in purple, the compaction color, with a purple sheen that sweeps the track. */
+const compactingSvg = (w: number, pct: number, ms: number): string => {
+  const h = 8
+  const gw = Math.max(24, w * 0.3)
+  const fw = (Math.max(0, Math.min(100, pct)) * w) / 100
+  const stop = (at: string, opacity: number) => `<stop offset="${at}" stop-color="${HEX.cost}" stop-opacity="${opacity}"/>`
+  return svg(
+    w,
+    h,
+    `<defs><linearGradient id="compact-shine">${stop('0', 0)}${stop('.5', 1)}${stop('1', 0)}</linearGradient>` +
+      `<clipPath id="compact-track"><rect width="${w}" height="${h}" rx="${h / 2}"/></clipPath></defs>` +
+      `<style>${sweepCss('compact-sweep', gw, w, ms)}${stillWhenReduced('.compact-sweep')}</style>` +
+      `<rect width="${w}" height="${h}" rx="${h / 2}" fill="${HEX.track}"/>` +
+      (fw > 0 ? `<rect width="${Math.max(fw, h).toFixed(1)}" height="${h}" rx="${h / 2}" fill="${HEX.cost}" opacity="0.45"/>` : '') +
+      `<g clip-path="url(#compact-track)"><rect class="compact-sweep" width="${gw.toFixed(1)}" height="${h}" fill="url(#compact-shine)"/></g>`,
   )
 }
 
@@ -84,30 +103,53 @@ export const turnsToCompact = (m: Metrics, pct: number | undefined, window: numb
 }
 
 /** The context fill as a gauge, its fill after each turn with the compactions marked, and the turns left before auto-compaction. */
-export const context: Section = (ui, { m, usage, live, compactAt }) => {
+export const context: Section = (ui, { m, usage, live, compactAt, compactingMs }) => {
   const { Text } = ui
-  // Unknown until the first response of a fresh or just-compacted window: drawn as '-' with an empty meter, not as a safe 0%.
+  // Unknown until the first response of a fresh window: drawn as '-' with an empty meter, not as a safe 0%.
   const known = usage.context.percent
-  const pct = known ?? 0
+  // Right after a compaction between turns, its estimated size stands in, marked with '~', until the next response counts it. The API
+  // count can stay set after /compact (the compaction request's own count), so the estimate wins over it.
+  const last = m.compactions.at(-1)
+  const est = last?.turn === m.mainTurns ? last.tokensAfter : undefined
+  const estPct = est !== undefined && usage.context.window > 0 ? Math.round((est / usage.context.window) * 100) : undefined
+  const pct = estPct ?? known ?? 0
+  const shown = estPct ?? known
+  const mark = estPct !== undefined || known === undefined ? '~' : ''
+  const tokens = estPct !== undefined ? est : (usage.context.tokens ?? est)
   const lvl = level(pct)
   const firstTurn = m.mainTurns - m.turns.length + 1
   const runway = turnsToCompact(m, known, usage.context.window, compactAt)
+  // While a compaction runs, the old count stays as it was and the fill gives way to a word and a sweep, so the pane shows work.
+  if (compactingMs !== null) {
+    return ui.section(
+      'Context',
+      <Text size="caption" tabular>
+        <Text dimColor>
+          {m.compactions.length > 0 ? `${m.compactions.length} compacted · ` : ''}
+          {tokens !== undefined ? fmtNum(tokens) : '-'} / {fmtNum(usage.context.window)}
+          {'  '}
+        </Text>
+        <Text weight="semibold">compacting…</Text>
+      </Text>,
+      [ui.Svg ? ui.chart(compactingSvg(ui.px, pct, compactingMs), 'Context compaction running') : ui.termBar(pct / 100, 'suggestion')],
+    )
+  }
   return ui.section(
     'Context',
     <Text size="caption" tabular>
       <Text dimColor>
         {m.compactions.length > 0 ? `${m.compactions.length} compacted · ` : ''}
-        {usage.context.tokens !== undefined ? fmtNum(usage.context.tokens) : '-'} / {fmtNum(usage.context.window)}
+        {tokens !== undefined ? `${mark}${fmtNum(tokens)}` : '-'} / {fmtNum(usage.context.window)}
         {'  '}
       </Text>
-      <Text weight="semibold" color={known === undefined || lvl === 'ok' ? undefined : THEME[lvl]}>
-        {known === undefined ? '-' : `${pct}%`}
+      <Text weight="semibold" color={shown === undefined || lvl === 'ok' ? undefined : THEME[lvl]}>
+        {shown === undefined ? '-' : `${mark}${pct}%`}
       </Text>
     </Text>,
     [
       ui.Svg
-        ? ui.chart(gaugeSvg(ui.px, pct), known === undefined ? 'Context fill not known yet' : `Context ${pct}% full`)
-        : ui.termBar(pct / 100, known === undefined ? 'suggestion' : THEME[lvl]),
+        ? ui.chart(gaugeSvg(ui.px, pct), shown === undefined ? 'Context fill not known yet' : `Context ${mark === '' ? '' : 'about '}${pct}% full`)
+        : ui.termBar(pct / 100, shown === undefined ? 'suggestion' : THEME[lvl]),
       ui.Svg && m.turns.some(t => t.contextPct !== null)
         ? ui.chart(contextSvg(ui.px, m.turns, firstTurn, m.compactions, live !== null), 'Context fill per turn')
         : null,

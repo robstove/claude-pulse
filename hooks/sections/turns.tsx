@@ -86,7 +86,7 @@ const shineDef = (id: string): string =>
   `<stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>`
 
 /** The CSS for class `cls`: a sheen `gw` wide that sweeps across a slot `to` wide, once a pulse. */
-const sweepCss = (cls: string, gw: number, to: number, ms: number): string =>
+export const sweepCss = (cls: string, gw: number, to: number, ms: number): string =>
   `@keyframes ${cls}{from{transform:translateX(-${gw.toFixed(0)}px)}to{transform:translateX(${to.toFixed(0)}px)}}` +
   `.${cls}{animation:${cls} ${PULSE_MS}ms cubic-bezier(.65,0,.35,1) infinite;${phase(ms)}}`
 
