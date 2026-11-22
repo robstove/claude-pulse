@@ -1,6 +1,6 @@
 import type { Metrics, TurnRecord } from '../../types'
 import { FONT, HEX, esc, fmtMs, fmtNum, fmtUsd, plural, sparkline, svg } from '../charts'
-import type { LiveTurn, Section, Ui } from './ui'
+import type { LiveStep, LiveTurn, Section, Ui } from './ui'
 
 /** Turn time over cost per turn on one x-axis, newest at the right; a turn of unknown cost draws a stub to keep the column. */
 const turnsSvg = (w: number, done: readonly TurnRecord[], firstTurn: number, live: LiveTurn | null): string => {
@@ -74,6 +74,93 @@ const requestsLine = (ui: Ui, m: Metrics) => {
 // A turn quiet this long shows its quiet time; it turns amber past the stallMinutes option.
 const QUIET_SHOW_MS = 30_000
 
+// One sweep of the shimmer over the running step. Its phase comes from the turn's time, so the redraw each tick does not restart it.
+const SHIMMER_MS = 1600
+const STEP_COLOR = { request: HEX.accent, tool: HEX.muted, compact: HEX.cost } as const
+
+const wholeSeconds = (ms: number): string => fmtMs(Math.max(1000, Math.floor(ms / 1000) * 1000))
+
+/** What the running turn does now: its newest open step and how long it has run, or how long it went quiet past the limit. */
+export const liveStatus = (live: LiveTurn): { open: LiveStep | undefined; stalled: boolean; waiting: boolean; now: string; counts: string } => {
+  const open = live.steps.filter(s => s.toMs === null).at(-1)
+  // A call put to a permission decision may wait on the person, or run once approved: no event tells the two apart, so it
+  // shows still and grey with text that holds for both, and never as a stall.
+  const waiting = open?.waits === true
+  const stalled = !waiting && live.stallMs > 0 && live.quietMs >= live.stallMs
+  const what = open === undefined ? 'Working' : `${open.name}${open.detail !== '' ? ` · ${open.detail.length > 40 ? `${open.detail.slice(0, 39)}…` : open.detail}` : ''}`
+  const since = open === undefined ? Math.max(0, ...live.steps.map(s => s.toMs ?? 0)) : open.fromMs
+  const quiet = !waiting && live.quietMs >= QUIET_SHOW_MS ? ` · quiet ${wholeSeconds(live.quietMs)}` : ''
+  const now = waiting
+    ? `${what} · approval asked ${wholeSeconds(live.ms - since)}`
+    : stalled
+      ? `${what} · quiet ${wholeSeconds(live.quietMs)}`
+      : `${what} · running ${wholeSeconds(live.ms - since)}${quiet}`
+  const requests = live.steps.filter(s => s.kind === 'request').length
+  const calls = live.steps.filter(s => s.kind === 'tool').length
+  return { open, stalled, waiting, now, counts: `${plural(requests, 'request')} · ${plural(calls, 'call')}` }
+}
+
+// The running turn on its own time axis: requests blue, tool calls grey, compactions purple. The open step is green with a
+// shimmer and a pulsing dot; past the stall limit it is amber and still, so motion means work.
+export const stripSvg = (w: number, live: LiveTurn): string => {
+  const { open, stalled, waiting, now, counts } = liveStatus(live)
+  const still = stalled || waiting
+  const total = Math.max(1, live.ms)
+  const h = 38
+  const x = (ms: number) => (Math.min(ms, total) / total) * w
+  const phase = `animation-delay:-${Math.round(live.ms % SHIMMER_MS)}ms`
+  // Running is green, the pane's healthy colour: an orange step read as a failure beside the red of failed calls.
+  const color = stalled ? HEX.warn : waiting ? HEX.muted : HEX.ok
+  const closed = live.steps
+    .filter(s => s !== open)
+    .map(s => {
+      const x0 = x(s.fromMs)
+      const width = Math.max(2, x(s.toMs ?? total) - x0 - 1)
+      const fill = s.toMs === null ? color : STEP_COLOR[s.kind]
+      return `<rect x="${x0.toFixed(1)}" y="3" width="${width.toFixed(1)}" height="8" rx="2" fill="${fill}"/>`
+    })
+  let current = ''
+  if (open !== undefined) {
+    const x0 = x(open.fromMs)
+    const ow = Math.max(4, w - x0)
+    const gw = Math.max(16, ow * 0.45)
+    current =
+      `<clipPath id="now"><rect x="${x0.toFixed(1)}" y="0" width="${ow.toFixed(1)}" height="14" rx="3"/></clipPath>` +
+      `<rect x="${x0.toFixed(1)}" y="0" width="${ow.toFixed(1)}" height="14" rx="3" fill="${color}"/>` +
+      (still
+        ? ''
+        : `<style>@keyframes sweep{from{transform:translateX(-${gw.toFixed(0)}px)}to{transform:translateX(${ow.toFixed(0)}px)}}` +
+          `.sweep{animation:sweep ${SHIMMER_MS}ms cubic-bezier(.65,0,.35,1) infinite;${phase}}</style>` +
+          `<g clip-path="url(#now)"><rect class="sweep" x="${x0.toFixed(1)}" y="0" width="${gw.toFixed(1)}" height="14" fill="url(#shine)"/></g>`)
+  }
+  const dot = still
+    ? `<circle cx="4" cy="28" r="4" fill="${color}"/>`
+    : `<style>@keyframes ring{from{transform:scale(1);opacity:.6}to{transform:scale(2.6);opacity:0}}` +
+      `.ring{transform-box:fill-box;transform-origin:center;animation:ring ${SHIMMER_MS}ms cubic-bezier(.16,1,.3,1) infinite;${phase}}` +
+      `@media (prefers-reduced-motion: reduce){.ring,.sweep{animation:none;opacity:0}}</style>` +
+      `<circle class="ring" cx="4" cy="28" r="4" fill="${color}"/><circle cx="4" cy="28" r="4" fill="${color}"/>`
+  return svg(
+    w,
+    h,
+    `<defs><linearGradient id="shine"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".55"/>` +
+      `<stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs>` +
+      `<rect width="${w}" height="14" rx="3" fill="${HEX.track}"/>` +
+      // The open step first: a step that ended while it ran draws over it.
+      current +
+      closed.join('') +
+      dot +
+      `<text x="14" y="32" fill="${color}" font-size="11" font-weight="600" ${FONT}>${esc(now)}</text>` +
+      `<text x="${w}" y="32" text-anchor="end" fill="${HEX.muted}" font-size="11" font-variant-numeric="tabular-nums" ${FONT}>${esc(counts)}</text>`,
+  )
+}
+
+/** The running turn's strip, or its status as a line where the surface draws no charts. */
+const liveStrip = (ui: Ui, live: LiveTurn) => {
+  if (ui.Svg) return ui.chart(stripSvg(ui.px, live), `Running turn: ${liveStatus(live).now}`)
+  const { stalled, now, counts } = liveStatus(live)
+  return ui.caption(`${now} · ${counts}`, stalled ? 'warning' : undefined)
+}
+
 /** Main turns that did not end with an answer, in red; nothing when every turn answered. */
 const endsLine = (ui: Ui, m: Metrics) => {
   const r = m.endReasons
@@ -93,19 +180,9 @@ export const turns: Section = (ui, { m, live }) => {
     'Turns',
     live ? (
       <Text size="caption" tabular>
-        <Text color="claude" weight="semibold">
-          Running {fmtMs(Math.max(1000, Math.floor(live.ms / 1000) * 1000))}
+        <Text color="success" weight="semibold">
+          Running {wholeSeconds(live.ms)}
         </Text>
-        <Text dimColor>
-          {' '}
-          · {plural(live.toolCalls, 'tool call')}
-        </Text>
-        {live.quietMs >= QUIET_SHOW_MS && (
-          <Text color={live.stallMs > 0 && live.quietMs >= live.stallMs ? 'warning' : undefined} dimColor={live.stallMs === 0 || live.quietMs < live.stallMs}>
-            {' '}
-            · quiet {fmtMs(Math.floor(live.quietMs / 1000) * 1000)}
-          </Text>
-        )}
       </Text>
     ) : m.mainTurns === 0 ? (
       'none yet'
@@ -113,6 +190,7 @@ export const turns: Section = (ui, { m, live }) => {
       `${plural(m.mainTurns, 'turn')}${m.agentTurns > 0 ? ` + ${m.agentTurns} subagent` : ''} · avg ${fmtMs(avgMs)} · max ${fmtMs(m.longestTurnMs)}`
     ),
     [
+      live && liveStrip(ui, live),
       ui.Svg ? (
         ui.chart(turnsSvg(ui.px, m.turns, firstTurn, live), `Turn time and cost, last ${fmtMs(m.lastTurnMs)}`)
       ) : (

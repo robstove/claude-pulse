@@ -1,6 +1,7 @@
 import type { Register } from 'claude-code'
 
 import { quietly } from './quietly'
+import { callLabel } from './label'
 import { record } from './tally'
 import { callEnded, callStarted, callWaits } from './watch'
 
@@ -39,16 +40,22 @@ export function observeTools(on: On): void {
     const startedAt = caller === 'engine' ? await quietly(() => $.clock.now()) : undefined
     // The stall watch holds the main loop's calls; tool.check, which the engine runs inside next, marks one put to a decider.
     const watched = id !== undefined && startedAt !== undefined && e.agentId === undefined
-    if (watched) callStarted(id, e.tool, startedAt)
-    const ran = await next(e)
+    if (watched) callStarted(id, e.tool, startedAt, callLabel(e as unknown as Readonly<Record<string, unknown>>))
+    let ran: Awaited<ReturnType<typeof next>>
+    let endedAt: number | undefined
+    // The call ends in `finally`, so one that throws never stays open on the strip or holds the stall watch off.
+    try {
+      ran = await next(e)
+    } finally {
+      endedAt = startedAt === undefined ? undefined : await quietly(() => $.clock.now())
+      if (watched) callEnded(id, endedAt ?? startedAt)
+    }
     const wasAsked = id !== undefined && asked.delete(id)
     const wasDenied = id !== undefined && denied.delete(id)
     if (caller !== 'engine') {
       await record($, { kind: 'plugin-call', plugin: caller })
       return ran
     }
-    const endedAt = startedAt === undefined ? undefined : await quietly(() => $.clock.now())
-    if (watched) callEnded(id, endedAt ?? startedAt)
     await record($, {
       kind: 'tool',
       tool: e.tool,

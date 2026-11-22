@@ -10,10 +10,15 @@ export type Kit = {
   Svg?: ElementConstructor<SvgProps>
 }
 
+/** A step of the running turn in ms from its start; `toMs` is null while it runs. */
+export type LiveStep = { kind: 'request' | 'tool' | 'compact'; name: string; detail: string; fromMs: number; toMs: number | null; waits: boolean }
+
 /** The main turn that runs now, as the pane draws it. */
 export type LiveTurn = {
   ms: number
   toolCalls: number
+  /** Its model requests, tool calls, and compactions, oldest first. */
+  steps: LiveStep[]
   /** Time since the turn last moved: a model chunk, a step's end, or a tool call's start or end. */
   quietMs: number
   /** The quiet time at which the turn counts as stalled; 0 never. */

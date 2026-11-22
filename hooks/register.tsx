@@ -13,7 +13,7 @@ import { statusText } from './status'
 import { costSince, record } from './tally'
 import { observeTools } from './tools'
 import { VERSION } from './version'
-import { quiet, shouldAlert, watchStart, watchStop } from './watch'
+import { quiet, shouldAlert, stepLog, watchStart, watchStop } from './watch'
 
 // The state scan reads an atom only where its file declares it, so each file that reads or writes Metrics declares the same one.
 const metrics = atom({ plugin: 'pulse', key: 'metrics' } as const, EMPTY, { shape: SHAPE })
@@ -240,7 +240,23 @@ export const register: Register = (on, options) => {
           now,
           daily: await read($, costs),
           elapsedMs: now - usage.startedAt,
-          live: startedAt !== null ? { ms: now - startedAt, toolCalls, quietMs: q?.ms ?? 0, stallMs: prefs.stallMinutes * 60_000 } : null,
+          live:
+            startedAt !== null
+              ? {
+                  ms: now - startedAt,
+                  toolCalls,
+                  steps: stepLog().map(s => ({
+                    kind: s.kind,
+                    name: s.name,
+                    detail: s.detail,
+                    fromMs: Math.max(0, s.startedAt - startedAt),
+                    toMs: s.endedAt === null ? null : Math.max(0, s.endedAt - startedAt),
+                    waits: s.waits,
+                  })),
+                  quietMs: q?.ms ?? 0,
+                  stallMs: prefs.stallMinutes * 60_000,
+                }
+              : null,
           cacheLeftMs: cacheLeftMs(m, usage, now),
           cacheTtlMs: cacheTtlMs(usage),
           compactAt,

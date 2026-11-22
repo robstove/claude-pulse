@@ -3,7 +3,7 @@ import type { Register } from 'claude-code'
 import { quietly } from './quietly'
 import { record } from './tally'
 import { requestStarted } from './cache'
-import { callEnded, callStarted, callWaits, progress, touch } from './watch'
+import { callEnded, callStarted, callWaits, progress, requestBegan, requestEnded, touch } from './watch'
 
 type On = Parameters<Register>[0]
 
@@ -26,7 +26,7 @@ export function observe(on: On): void {
     const holds = e.agentId === undefined && e.trigger !== 'precompute'
     const began = holds ? await quietly(() => $.clock.now()) : undefined
     if (began !== undefined) {
-      callStarted(COMPACTION, 'Compaction', began)
+      callStarted(COMPACTION, 'Compaction', began, '', 'compact')
       callWaits(COMPACTION)
     }
     let at: number | undefined
@@ -65,26 +65,38 @@ export function observe(on: On): void {
 
   on('turn.step', async function* ($, e, next) {
     const startedAt = await quietly(() => $.clock.now())
-    if (startedAt !== undefined && e.agentId === undefined) requestStarted(startedAt)
+    // A main request starts the cache's clock and a step of the strip; a subagent's request is neither.
+    const stepKey = `${e.turnId}:${e.index}`
+    if (startedAt !== undefined && e.agentId === undefined) {
+      requestStarted(startedAt)
+      requestBegan(stepKey, startedAt)
+    }
     let firstAt: number | null = null
     // After one failed clock read the step stops its timing, so a broken clock costs one try, not one per chunk.
     let timing = startedAt !== undefined
     const stream = next(e)
-    for await (const chunk of stream) {
-      // Engine chunks are the envelope and block markers; the first text, thinking, or tool chunk is the first token.
-      if (timing && firstAt === null && chunk.kind !== 'engine') {
-        const at = await quietly(() => $.clock.now())
-        if (at === undefined) timing = false
-        else firstAt = at
+    let r: Awaited<typeof stream.result>
+    let endedAt: number | undefined
+    // The step ends in `finally`, so one that throws or is stopped never stays open on the strip.
+    try {
+      for await (const chunk of stream) {
+        // Engine chunks are the envelope and block markers; the first text, thinking, or tool chunk is the first token.
+        if (timing && firstAt === null && chunk.kind !== 'engine') {
+          const at = await quietly(() => $.clock.now())
+          if (at === undefined) timing = false
+          else firstAt = at
+        }
+        // Any chunk shows the turn moves, a server tool's engine chunks and a subagent's too; the stall check reads the clock, so a
+        // chunk costs no clock read.
+        touch()
+        yield chunk
       }
-      // Any chunk shows the turn moves, a server tool's engine chunks and a subagent's too; the stall check reads the clock, so a
-      // chunk costs no clock read.
-      touch()
-      yield chunk
+      r = await stream.result
+    } finally {
+      endedAt = await quietly(() => $.clock.now())
+      if (endedAt !== undefined) progress(endedAt)
+      if (e.agentId === undefined) requestEnded(stepKey, endedAt ?? startedAt ?? 0)
     }
-    const r = await stream.result
-    const endedAt = await quietly(() => $.clock.now())
-    if (endedAt !== undefined) progress(endedAt)
     await record($, {
       kind: 'step',
       agentId: e.agentId,

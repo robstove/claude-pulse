@@ -1,9 +1,18 @@
-// What the running main turn does now, for the stall alert. Module state: a reload starts it over, and the next event fills it.
+// What the running main turn does now, for the stall alert and the step strip. Module state: a reload starts it over, and the
+// next event fills it.
 
 /** `waits` marks a call put to a decider: its time can be the person's, so it is no stall. */
 type OpenCall = { tool: string; startedAt: number; waits: boolean }
 
+/** One stretch of the running main turn; `detail` is a name-only label, and `endedAt` is null while it runs. */
+export type Step = { kind: 'request' | 'tool' | 'compact'; name: string; detail: string; startedAt: number; endedAt: number | null; waits: boolean }
+
+// A long turn keeps its newest steps; older ones are too thin to draw.
+const MAX_STEPS = 300
+
 const open = new Map<string, OpenCall>()
+let steps: Step[] = []
+const openSteps = new Map<string, Step>()
 let lastProgressAt: number | null = null
 let alerted = false
 // A chunk arrived since the last check; the next check counts it as progress at its own clock reading.
@@ -12,6 +21,8 @@ let moved = false
 /** A turn starts: nothing is open, and the quiet time counts from now. */
 export const watchStart = (now: number): void => {
   open.clear()
+  steps = []
+  openSteps.clear()
   moved = false
   lastProgressAt = now
   alerted = false
@@ -28,9 +39,31 @@ export const touch = (): void => {
   moved = true
 }
 
-/** A tool call starts. */
-export const callStarted = (id: string, tool: string, now: number): void => {
+const stepEnds = (key: string, now: number): void => {
+  const step = openSteps.get(key)
+  if (step === undefined) return
+  step.endedAt = Math.max(step.startedAt, now)
+  openSteps.delete(key)
+}
+
+const stepBegins = (key: string, step: Step): void => {
+  // A request sent again under its index (a fallback model) ends the one it replaces.
+  stepEnds(key, step.startedAt)
+  steps.push(step)
+  if (steps.length > MAX_STEPS) steps = steps.slice(-MAX_STEPS)
+  openSteps.set(key, step)
+}
+
+/** A model request of the main loop starts and ends; `key` names it between the two. */
+export const requestBegan = (key: string, now: number): void =>
+  stepBegins(key, { kind: 'request', name: 'Model request', detail: '', startedAt: now, endedAt: null, waits: false })
+
+export const requestEnded = (key: string, now: number): void => stepEnds(key, now)
+
+/** A tool call starts; `detail` is its name-only label, and a compaction passes `compact`. */
+export const callStarted = (id: string, tool: string, now: number, detail = '', kind: 'tool' | 'compact' = 'tool'): void => {
   open.set(id, { tool, startedAt: now, waits: false })
+  stepBegins(id, { kind, name: tool, detail, startedAt: now, endedAt: null, waits: false })
   progress(now)
 }
 
@@ -38,15 +71,23 @@ export const callStarted = (id: string, tool: string, now: number): void => {
 export const callWaits = (id: string): void => {
   const call = open.get(id)
   if (call !== undefined) call.waits = true
+  const step = openSteps.get(id)
+  if (step !== undefined) step.waits = true
 }
 
 export const callEnded = (id: string, now: number): void => {
   open.delete(id)
+  stepEnds(id, now)
   progress(now)
 }
 
+/** The running turn's steps, oldest first, as copies the pane can keep. */
+export const stepLog = (): Step[] => steps.map(s => ({ ...s }))
+
 export const watchStop = (): void => {
   open.clear()
+  steps = []
+  openSteps.clear()
   lastProgressAt = null
   moved = false
 }

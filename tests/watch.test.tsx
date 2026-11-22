@@ -2,6 +2,8 @@ import { expect, test } from 'claude-code/testing'
 
 import { callEnded, callStarted, callWaits, progress, quiet, shouldAlert, touch, watchStart } from '../hooks/watch'
 import { fmtMs } from '../hooks/charts'
+import { liveStatus, stripSvg } from '../hooks/sections/turns'
+import type { LiveTurn } from '../hooks/sections/ui'
 import { HINT, PANE, memoryStore } from './kit'
 import type { Dollar, On } from './kit'
 
@@ -130,8 +132,8 @@ test('a running turn shows its quiet time, amber past the stall limit, and a toa
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await $.turn.start({ text: 'hi', turnId: 't1' })
   state.now += 4 * 60_000
-  const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  const found = await pane.find({ type: 'Text', text: /^ · quiet 4m 0s$/ })
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const found = await pane.find({ type: 'Text', text: 'Working · quiet 4m 0s · 0 requests · 0 calls' })
   expect(found?.props.color).toBe('warning')
   await pane.unmount()
   expect(toasts).toEqual(['Pulse: no model output or tool call for 4m 0s.'])
@@ -261,4 +263,103 @@ test('a span past two days reads in days and hours', async () => {
   expect(fmtMs((175 * 60 + 27) * 60_000)).toBe('7d 7h')
   expect(fmtMs((54 * 60 + 18) * 60_000)).toBe('2d 6h')
   expect(fmtMs((47 * 60 + 5) * 60_000)).toBe('47h 5m')
+})
+
+const running = (over: Partial<LiveTurn> = {}): LiveTurn => ({
+  ms: 72_000,
+  toolCalls: 1,
+  steps: [
+    { kind: 'request', name: 'Model request', detail: '', fromMs: 0, toMs: 6_000, waits: false },
+    { kind: 'tool', name: 'Read', detail: 'src/a.ts', fromMs: 6_000, toMs: 7_000, waits: false },
+    { kind: 'request', name: 'Model request', detail: '', fromMs: 7_000, toMs: 61_000, waits: false },
+    { kind: 'tool', name: 'Bash', detail: 'npm', fromMs: 61_000, toMs: null, waits: false },
+  ],
+  quietMs: 11_000,
+  stallMs: 180_000,
+  ...over,
+})
+
+test('the step strip names the open step and how long it has run, and animates it in green', async () => {
+  const live = running()
+  expect(liveStatus(live).now).toBe('Bash · npm · running 11s')
+  expect(liveStatus(live).counts).toBe('2 requests · 2 calls')
+  const source = stripSvg(400, live)
+  expect(source).toContain('#3fb950')
+  expect(source).toContain('class="sweep"')
+  expect(source).toContain('class="ring"')
+  // The phase comes from the turn's time, so each redraw continues the sweep where the last one was.
+  expect(source).toContain('animation-delay:-0ms')
+  expect(stripSvg(400, running({ ms: 72_400 }))).toContain('animation-delay:-400ms')
+})
+
+test('past the stall limit the open step is amber and still', async () => {
+  const live = running({ ms: 300_000, quietMs: 240_000 })
+  expect(liveStatus(live).now).toBe('Bash · npm · quiet 4m 0s')
+  const source = stripSvg(400, live)
+  expect(source).toContain('#d29922')
+  expect(source).not.toContain('class="sweep"')
+  expect(source).not.toContain('class="ring"')
+})
+
+test('a call put to approval is grey and still, and never counts as quiet', async () => {
+  const steps = running().steps.map(st => (st.toMs === null ? { ...st, waits: true } : st))
+  const live = running({ steps, ms: 300_000, quietMs: 240_000 })
+  expect(liveStatus(live).now).toBe('Bash · npm · approval asked 3m 59s')
+  expect(liveStatus(live).stalled).toBe(false)
+  const source = stripSvg(400, live)
+  expect(source).toContain('#8b949e')
+  expect(source).not.toContain('class="sweep"')
+  expect(source).not.toContain('#d29922')
+})
+
+test('a turn quiet past 30 s but under the stall limit says so, still in green', async () => {
+  expect(liveStatus(running({ quietMs: 45_000 })).now).toBe('Bash · npm · running 11s · quiet 45s')
+})
+
+test('with no open step the strip says the turn is working since its last step ended', async () => {
+  const live = running({ steps: running().steps.map(st => ({ ...st, toMs: st.toMs ?? 70_000 })) })
+  expect(liveStatus(live).now).toBe('Working · running 2s')
+  expect(stripSvg(400, live)).not.toContain('class="sweep"')
+})
+
+test('the running turn draws its requests and calls as a strip, and the terminal shows its status line', async ($, on) => {
+  const { state } = engine(on)
+  step(on)
+  on('tool.call', () => {
+    state.now += 3_000
+    return { result: {} }
+  })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.turn.start({ text: 'hi', turnId: 't1' })
+  await runStep($, 't1')
+  await $.tool.call({ tool: 'Read', file_path: '/repo/src/a.ts', tool_use_id: 'u1' })
+  state.now += 5_000
+  const term = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await term.find({ type: 'Text', text: 'Working · running 5s · 1 request · 1 call' })).toBeDefined()
+  await term.unmount()
+  const desk = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const strip = (await desk.findAll({ type: 'Svg' })).find(c => String(c.props.alt).startsWith('Running turn'))
+  expect(strip?.props.alt).toBe('Running turn: Working · running 5s')
+  await desk.unmount()
+})
+
+test('a request that throws mid-stream ends its step, so the strip shows nothing still running', async ($, on) => {
+  const { state } = engine(on)
+  on('turn.step', async function* () {
+    yield { kind: 'text', index: 0, text: 'hi', ref: 1 }
+    throw new Error('overloaded')
+  })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.turn.start({ text: 'hi', turnId: 't1' })
+  try {
+    for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-5-5', messageCount: 1 })) {
+      // Read the stream until it throws.
+    }
+  } catch {
+    // The engine retries or ends the turn; the strip must not keep the step open.
+  }
+  state.now += 2_000
+  const term = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await term.find({ type: 'Text', text: 'Working · running 2s · 1 request · 0 calls' })).toBeDefined()
+  await term.unmount()
 })
