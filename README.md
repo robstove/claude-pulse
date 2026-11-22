@@ -38,6 +38,13 @@ claude plugin install pulse --marketplace robstove/claude-pulse
 
 For the desktop app, run the shell command. The terminal, the desktop app's local sessions, and VS Code read the same settings, so an install at user scope reaches all three. Cloud and WSL sessions do not get it.
 
+**Updates.** Claude Code turns off auto-update for a marketplace that does not come from Anthropic, so a new release of Pulse does not arrive by itself. To turn it on, open `/plugin` in a terminal session, go to Marketplaces, select claude-pulse, and select Enable auto-update. Claude Code then updates Pulse in the background at startup, and the new version loads at the next restart. To update once from a shell:
+
+```bash
+claude plugin marketplace update claude-pulse
+claude plugin update pulse@claude-pulse
+```
+
 ## Use
 
 The pane opens when a session starts. If you close it, `/pulse` opens it again. Its title shows the Pulse version, so you can see when an update reached the session.
