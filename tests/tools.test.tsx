@@ -103,7 +103,7 @@ test('a no at the permission dialog counts as refused, not as failed', async ($,
   expect(await hintLine($)).toContain('1 tools (1 refused)')
 })
 
-test('a background task is timed to its notification, which is no prompt of the person', async ($, on) => {
+test('a background task is timed to its notification, which is no prompt of the person, and keeps the header Live while it runs', async ($, on) => {
   const { clock } = world(on, { Bash: { result: { stdout: '', backgroundTaskId: 'bg1' } } })
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await $.prompt.submit({ text: 'build it', wait: false, origin: { kind: 'composer' } })
@@ -111,7 +111,15 @@ test('a background task is timed to its notification, which is no prompt of the 
 
   const running = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await running.find({ type: 'Text', text: /^1 in background$/ })).toBeDefined()
+  // No turn runs, but the task still works, so the header says Live.
+  expect((await running.find({ type: 'Text', text: 'Live' }))?.props.color).toBe('success')
+  expect(await running.find({ type: 'Text', text: 'Elapsed · 1 background task' })).toBeDefined()
   await running.unmount()
+  const dot = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const svg = (await dot.findAll({ type: 'Svg' })).find(c => c.props.width === 18)
+  expect(svg?.props.alt).toBe('1 background task running')
+  expect(String(svg?.props.source)).toContain('class="ring"')
+  await dot.unmount()
 
   clock.now += 600_000
   const notice = '<task-notification>\n<task-id>bg1</task-id>\n<status>failed</status>\n<summary>secret output</summary>\n</task-notification>'
@@ -122,6 +130,8 @@ test('a background task is timed to its notification, which is no prompt of the 
   expect(await done.find({ type: 'Text', text: /Bash \(background\) · Build the app/ })).toBeDefined()
   expect(await done.find({ type: 'Text', text: /^1 prompt/ })).toBeDefined()
   expect(await done.find({ type: 'Text', text: /secret/ })).toBeUndefined()
+  expect(await done.find({ type: 'Text', text: 'Live' })).toBeUndefined()
+  expect(await done.find({ type: 'Text', text: 'Elapsed' })).toBeDefined()
   await done.unmount()
 })
 
@@ -136,6 +146,45 @@ test('a background task that was killed counts as stopped, not as failed or done
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /^1 background done in 1m 3s, 1 stopped$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /failed/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a notification under the desktop frame ends its task, and a block quoted inside a sentence ends none', async ($, on) => {
+  const { clock } = world(on, { Bash: { result: { stdout: '', backgroundTaskId: 'bg1' } } })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.tool.call({ tool: 'Bash', command: 'npm run build', run_in_background: true, tool_use_id: 'u1' })
+  clock.now += 60_000
+  const quoted = 'Why does <task-notification><task-id>bg1</task-id><status>completed</status> not end it?'
+  await $.prompt.submit({ text: quoted, wait: false, origin: { kind: 'composer' } })
+  const open = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await open.find({ type: 'Text', text: /^1 in background$/ })).toBeDefined()
+  await open.unmount()
+
+  // turn.start carries no origin, so a typed prompt that holds a block at a line start must not end the task either.
+  await $.turn.start({ text: 'Look at this:\n<task-notification>\n<task-id>bg1</task-id>\n<status>completed</status>', turnId: 't1' })
+  const typed = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await typed.find({ type: 'Text', text: /^1 in background$/ })).toBeDefined()
+  await typed.unmount()
+  await $.turn.complete({ answer: '', durationMs: 1_000, isAborted: false, turnId: 't1', reason: 'answer' })
+
+  const framed = '[SYSTEM NOTIFICATION - NOT USER INPUT]\nThis is an automated background-task event.\n\n<task-notification>\n<task-id>bg1</task-id>\n<status>completed</status>\n</task-notification>'
+  await $.prompt.submit({ text: framed, wait: false, origin: { kind: 'task-notification' } })
+  const done = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await done.find({ type: 'Text', text: /^1 background done in 1m 3s$/ })).toBeDefined()
+  expect(await done.find({ type: 'Text', text: 'Live' })).toBeUndefined()
+  await done.unmount()
+})
+
+test('a TaskStop call ends the task it names as stopped, because a stopped task sends no notification', async ($, on) => {
+  const { clock } = world(on, { Bash: { result: { stdout: '', backgroundTaskId: 'bg1' } }, TaskStop: { result: { message: 'stopped' } } })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.tool.call({ tool: 'Bash', command: 'npm run dev', run_in_background: true, tool_use_id: 'u1' })
+  clock.now += 60_000
+  await $.tool.call({ tool: 'TaskStop', task_id: 'bg1', tool_use_id: 'u2' })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^1 background done in 1m 6s, 1 stopped$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Live' })).toBeUndefined()
   await ui.unmount()
 })
 

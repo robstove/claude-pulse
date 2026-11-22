@@ -1,3 +1,6 @@
+/** The level the person hid the budget band at, for one day and one budget. */
+export type BudgetMark = { day: string; level: number; budget: number }
+
 export type ToolStat = {
   count: number
   errors: number
@@ -149,6 +152,8 @@ declare module 'claude-code' {
       tick: number
       /** Counts the ticks between turns while the prompt cache counts down; the pane and the prompt hint read it. */
       idleTick: number
+      /** The day, level, and budget at which the person hid the budget band; the band shows again past them. */
+      budgetHidden: BudgetMark | null
     }
   }
 }

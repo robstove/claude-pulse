@@ -186,6 +186,18 @@ test('a resumed session reloads the metrics it saved', async ($, on) => {
   await ui.unmount()
 })
 
+test('a resumed session drops the background tasks its earlier process left open, so the header says Idle', async ($, on) => {
+  const held = saved(5)
+  world(on, { 'session:abc': { ...held, metrics: { ...held.metrics, tasks: { u1: { tool: 'Bash', label: 'npm', startedAt: 1 } } } } })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: 'Live' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /in background/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'Elapsed' })).toBeDefined()
+  await ui.unmount()
+})
+
 test('each turn saves the session and the store keeps the newest 50', async ($, on) => {
   const old = Array.from({ length: 50 }, (_, i) => ({ id: `s${i}`, savedAt: i }))
   const { store } = world(on, {

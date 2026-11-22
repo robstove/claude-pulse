@@ -7,14 +7,14 @@ Live session metrics for Claude Code. Pulse tracks each session with hooks and s
 - **Cost and elapsed time** for the session, as the status line counts them, with the cost per hour.
 - **Limits**: the 5-hour and 7-day rate-limit windows on a subscription, when each resets, the pace this session uses them at, a tick at each day or hour start with a marker at now to show whether you are over or under an even spread, and a red warning when that pace fills a window before it resets. Under the 7-day bar, a column shows what each day of the window cost.
 - **Context** fill as a gauge that turns amber at 60% and red at 80%, a line of the fill after each turn, a mark at each compaction, and the turns left before auto-compaction at the current rate.
-- **Turns**: time and cost per turn on one chart. While a turn runs, a strip above it shows the turn's model requests and tool calls as they happen; the current step is green and moves, and turns amber and still when the turn stays quiet past a limit. The top of the pane shows the same state: a band across its full width, green with a moving sheen while a turn runs, and a dot and the word Live, Stalled, or Idle beside the elapsed time. Between turns the strip stays, faded, and names the last turn's time and cost, and a line under it names the three tools that took the most time in that turn. A toast tells you when a turn stays quiet past the limit, and when one tool fails 3 times in a row. Under it: model requests per turn, time to the first token, output tokens per second, effort, server tools, cut replies, and interrupted or failed turns.
+- **Turns**: time and cost per turn on one chart. While a turn runs, a strip above it shows the turn's model requests and tool calls as they happen; the current step is green and moves, and turns amber and still when the turn stays quiet past a limit. The top of the pane shows the same state: a dot that breathes and rings in green while a turn or a background task runs, and the word Live, Stalled, or Idle beside the elapsed time. Between turns the strip stays, faded, and names the last turn's time and cost, and a line under it names the three tools that took the most time in that turn. A toast tells you when a turn stays quiet past the limit, and when one tool fails 3 times in a row. Under it: model requests per turn, time to the first token, output tokens per second, effort, server tools, cut replies, and interrupted or failed turns.
 - **Activity**: Claude's working time and your time between turns, with your prompt and slash-command counts.
 - **Tokens**: cache read, cache write, input, and output as one stacked bar. Between turns, a countdown shows how long the prompt cache stays warm, and a toast warns before it expires.
 - **Tools**: total time per tool, with failed calls in red, the p50 and p95 time on hover, and the three slowest calls.
 - **Files**: the files that Claude edited, most edited first.
 - **Models**: turns, average time, and tokens for each model, so a `/model` switch shows its own share.
 - **Subagents**: starts, time, tokens, and model for each subagent type.
-- **History**: cost per day for the last 14 days across all sessions, with today and 7-day totals. With a daily budget set, it shows today's share of the budget, and a toast warns at 80% and again at 100%.
+- **History**: cost per day for the last 14 days across all sessions, with today and 7-day totals. With a daily budget set, it shows today's share of the budget. From 80%, a band above the prompt shows today's spend and the budget, amber and then red at 100%, and the hint line under the prompt shows them too. Hide removes the band for the rest of the day, in other open sessions after their next turn, until the spend reaches 100% or the budget changes. VS Code draws neither the band nor the hint line, so there the History caption alone shows the share.
 
 On desktop, VS Code, and mobile the charts are SVG with hover tooltips. The terminal gets block-character bars and sparklines.
 
@@ -52,7 +52,7 @@ Set them with `claude plugin configure pulse`, then start a new session.
 | `alertAt` | `80` | the fill at which they turn red; a pair out of order counts as not set |
 | `cacheMinutes` | `0` | how long the prompt cache lasts; `0` guesses 60 minutes on a subscription and 5 with an API key |
 | `stallMinutes` | `3` | the quiet minutes after which a running turn shows a toast; `0` turns the toast off |
-| `dailyBudgetUsd` | `0` | today's spend in dollars, across all sessions, at which a toast warns, once at 80% and once at 100%; `0` turns the toast off |
+| `dailyBudgetUsd` | `0` | today's spend in dollars, across all sessions, at which the band above the prompt warns, from 80% and in red from 100%; `0` turns the band off |
 | `sections` | empty | the pane sections to show, in order, separated by commas: `header`, `limits`, `context`, `turns`, `activity`, `tokens`, `tools`, `files`, `models`, `agents`, `history`, `plugins`; empty shows all |
 
 ### Saved data
@@ -99,7 +99,7 @@ Pulse makes no network calls and reads no files. CI fails any change that adds s
 - A call that a permission rule, a hook, or you at the permission dialog refused counts as refused, not as failed, and adds no time. Claude Code marks a no at the dialog only by the words of its error, so if those words change, such a call counts as failed.
 - A call you interrupt counts, but not as failed.
 - A call that went to a permission decision, from you or from auto mode's classifier, keeps its time apart, as "with approval", because Claude Code does not report when the decision ends. Tool time, p50, p95, and the slowest calls leave these calls out. In auto mode most calls that write go to the classifier, so most of their time shows as "with approval".
-- A command sent to the background, a background subagent, a workflow, or a monitor with a timeout is timed until its notification says it ended. The Tools line shows how many still run, and how many failed or were stopped. A background task that a subagent starts reports to that subagent, so Pulse does not time it.
+- A command sent to the background, a background subagent, a workflow, or a monitor with a timeout is timed until its notification says it ended, or until a TaskStop call stops it, because a stopped task sends no notification. The Tools line shows how many still run, and how many failed or were stopped. A background task that a subagent starts reports to that subagent, so Pulse does not time it.
 - Pulse hooks `tool.call` for every tool, so Claude Code turns off the move of a running call to the background, as it does for any plugin that hooks tool calls.
 
 **Files.** Edit, Write, MultiEdit, and NotebookEdit count as edits.

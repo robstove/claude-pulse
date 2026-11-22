@@ -3,8 +3,7 @@ import { expect, test } from 'claude-code/testing'
 import { SHAPE } from '../hooks/state'
 import { PANE, costsIn, memoryStore } from './kit'
 import type { Dollar, On } from './kit'
-
-type Limit = { kind: string; percentUsed: number; resetsAt?: string }
+import type { Limit } from './live'
 
 // The engine answers every test shares; `state` lets a test move the clock, the cost, and the limits.
 const engine = (on: On) => {

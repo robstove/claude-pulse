@@ -32,7 +32,7 @@
       "type": "number",
       "title": "Daily budget",
       "default": 0,
-      "description": "Today's spend in dollars, across all sessions, at which a toast warns: once at 80% and once at 100%. 0 turns the alert off."
+      "description": "Today's spend in dollars, across all sessions, at which a band above the prompt warns: from 80%, and in red from 100%. 0 turns the band off."
     },
     "sections": {
       "type": "string",

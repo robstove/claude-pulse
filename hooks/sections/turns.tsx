@@ -81,12 +81,12 @@ export const PULSE_MS = 1600
 export const phase = (ms: number): string => `animation-delay:-${Math.round(ms % PULSE_MS)}ms`
 
 /** A white sheen that fades in and out across its width, as a gradient with this id. */
-export const shineDef = (id: string): string =>
+const shineDef = (id: string): string =>
   `<linearGradient id="${id}"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".55"/>` +
   `<stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>`
 
 /** The CSS for class `cls`: a sheen `gw` wide that sweeps across a slot `to` wide, once a pulse. */
-export const sweepCss = (cls: string, gw: number, to: number, ms: number): string =>
+const sweepCss = (cls: string, gw: number, to: number, ms: number): string =>
   `@keyframes ${cls}{from{transform:translateX(-${gw.toFixed(0)}px)}to{transform:translateX(${to.toFixed(0)}px)}}` +
   `.${cls}{animation:${cls} ${PULSE_MS}ms cubic-bezier(.65,0,.35,1) infinite;${phase(ms)}}`
 

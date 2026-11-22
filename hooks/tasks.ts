@@ -14,13 +14,25 @@ export const taskOf = (result: unknown): string | undefined => {
 
 export type TaskEnd = 'ok' | 'failed' | 'stopped'
 
-/** A task notification, read for the task id and how it ended; its summary and output are never read. No end: the task goes on. */
-export const taskNotice = (text: string): { id: string; ended?: TaskEnd } | undefined => {
-  if (!text.trimStart().startsWith('<task-notification>')) return undefined
-  const id = /<task-id>([\w-]{1,64})<\/task-id>/.exec(text)?.[1]
-  if (id === undefined) return undefined
-  const status = /<status>([^<]{1,32})<\/status>/.exec(text)?.[1]
-  if (status === undefined) return { id }
-  // `killed` is a stop by the person or by Claude, not a failure and not a success.
-  return { id, ended: status === 'failed' ? 'failed' : status === 'killed' ? 'stopped' : 'ok' }
-}
+// A block opens at the start of a line: the desktop app puts a "[SYSTEM NOTIFICATION ...]" frame before it, and one
+// delivery can carry several blocks. A block inside a sentence is quoted text, not a notification.
+const BLOCK = /(?:^|\n)[ \t]*<task-notification>([\s\S]*?)(?=<\/task-notification>|\n[ \t]*<task-notification>|$)/g
+
+/** Each task notification in a delivery, read for the task id and how it ended; its summary and output are never read.
+ * No end: the task goes on. */
+export const taskNotices = (text: string): { id: string; ended?: TaskEnd }[] =>
+  [...text.matchAll(BLOCK)].flatMap(([, body = '']) => {
+    const id = /<task-id>([\w-]{1,64})<\/task-id>/.exec(body)?.[1]
+    if (id === undefined) return []
+    const status = /<status>([^<]{1,32})<\/status>/.exec(body)?.[1]
+    if (status === undefined) return [{ id }]
+    // `killed` is a stop by the person or by Claude, not a failure and not a success.
+    return [{ id, ended: status === 'failed' ? 'failed' : status === 'killed' ? 'stopped' : 'ok' }]
+  })
+
+/** True for a text that opens as a notification, bare or under the desktop frame. turn.start carries no origin, so this keeps
+ * a notification block that the person pasted into a prompt from ending a task. */
+export const opensAsNotice = (text: string): boolean => /^\s*(?:<task-notification>|\[SYSTEM NOTIFICATION\b)/.test(text)
+
+/** The task a TaskStop call names; a task it stops sends no notification. */
+export const taskStopped = (input: Readonly<Record<string, unknown>>): string | undefined => idOf(input.task_id) ?? idOf(input.shell_id)

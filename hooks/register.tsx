@@ -1,10 +1,12 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
-import { checkBudget } from './budget'
+import { budgetBand } from './band'
+import { forgetToastMark, syncBudget, todaySpend } from './budget'
 import { cacheLeftMs, cacheTtlMs, resetRequest, warnLeadMs } from './cache'
 import { fmtMs, fmtNum } from './charts'
 import { refreshCosts } from './ledger'
+import { opensAsNotice } from './tasks'
 import { ALERT, resetLoops } from './loop'
 import { observe } from './observe'
 import { drawPane } from './pane'
@@ -111,6 +113,7 @@ export const register: Register = (on, options) => {
   setPrefs(options)
   observe(on)
   observeTools(on)
+  budgetBand(on)
 
   on('session.start', async ($, e, next) => {
     await quietly(() => $.command.register({ name: 'pulse', description: 'Show token, timing, and tool metrics for this session' }))
@@ -119,6 +122,8 @@ export const register: Register = (on, options) => {
     await quietly(() => convertSaves($))
     await quietly(() => adopt($))
     await quietly(async () => refreshCosts($, await $.clock.now()))
+    await quietly(() => forgetToastMark($))
+    await quietly(async () => syncBudget($, await $.clock.now()))
 
     return next(e)
   })
@@ -158,7 +163,7 @@ export const register: Register = (on, options) => {
       const now = await quietly(() => $.clock.now())
       if (now !== undefined) watchStart(now)
       // A notification that wakes an idle session starts a turn; the task it reports on ends here.
-      if (now !== undefined) await record($, { kind: 'notice', text: e.text, now })
+      if (now !== undefined && opensAsNotice(e.text)) await record($, { kind: 'notice', text: e.text, now })
       await record($, { kind: 'turn-start', now })
       if (now !== undefined) await quietly(() => startTicker($))
       bump($)
@@ -195,8 +200,8 @@ export const register: Register = (on, options) => {
     // A subagent turn runs inside a main turn, whose end saves its figures too.
     if (isMain && m !== undefined && now !== undefined) {
       await persist($, m, now, m.turns.at(-1)?.costUsd ?? null)
-      // persist read the day's totals again, with other sessions' spend, so the budget check sees the whole day.
-      await quietly(() => checkBudget($, now))
+      // A Hide in another open session reaches this one here, with that session's spend.
+      await quietly(() => syncBudget($, now))
     }
     if (isMain && s !== undefined && now !== undefined && m !== undefined) {
       const left = cacheLeftMs(m, s, now)
@@ -211,7 +216,9 @@ export const register: Register = (on, options) => {
     const line = await quietly(async () => {
       // Reading the idle tick subscribes the hint to the cache countdown, which moves between turns only.
       await read($, idleTick)
-      return statusText(await read($, metrics), await $.session.usage(), await $.clock.now())
+      const now = await $.clock.now()
+      // Reading the day's totals subscribes the hint to them too, so a turn's spend shows when it ends.
+      return statusText(await read($, metrics), await $.session.usage(), now, todaySpend(await read($, costs), now))
     })
     if (line === undefined) return next(e)
     // A tail that reaches Pulse came from a plugin above it, so Pulse adds to it.

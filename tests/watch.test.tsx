@@ -2,52 +2,11 @@ import { expect, test } from 'claude-code/testing'
 
 import { callEnded, callStarted, callWaits, progress, quiet, shouldAlert, touch, watchStart } from '../hooks/watch'
 import { fmtMs } from '../hooks/charts'
-import { dayKey } from '../hooks/ledger'
-import { PULSE_MS, liveStatus, stripSvg, toolTimeText } from '../hooks/sections/turns'
+import { liveStatus, stripSvg, toolTimeText } from '../hooks/sections/turns'
 import type { LiveTurn } from '../hooks/sections/ui'
-import { HINT, PANE, memoryStore } from './kit'
-import type { Dollar, On } from './kit'
-
-type Limit = { kind: string; percentUsed: number; resetsAt?: string }
-
-// The engine answers these tests share; `state` moves the clock, the context, and the limits, and `afters` holds each one-shot timer.
-const engine = (on: On) => {
-  const state = { now: Date.UTC(2026, 10, 13, 12), tokens: 50_000, percent: 25, limits: [] as Limit[], compactAt: 160_000 as number | undefined, cost: 0.5 }
-  const afters: number[] = []
-  const toasts: string[] = []
-  const store = memoryStore(on)
-  on('command.register', () => ({ value: { command: 'pulse' } }))
-  on('ui.open', () => ({ value: { isPlaced: true } }))
-  on('clock.every', () => ({ value: undefined }))
-  on('clock.after', (_, e) => {
-    afters.push(e.ms)
-    return { value: undefined }
-  })
-  on('ui.toast', (_, e) => {
-    toasts.push(e.text)
-    return { value: undefined }
-  })
-  on('clock.now', () => ({ value: state.now }))
-  on('session.id', () => ({ value: 'abc' }))
-  on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('session.usage', () => ({
-    value: {
-      startedAt: state.now - 600_000,
-      context: {
-        tokens: state.tokens,
-        window: 200_000,
-        percent: state.percent,
-        // Pulse reads only these two fields of the breakdown.
-        breakdown: { isAutoCompactEnabled: state.compactAt !== undefined, autoCompactThreshold: state.compactAt } as never,
-      },
-      rateLimits: state.limits,
-      cost: { usd: state.cost },
-    },
-  }))
-  on('turn.start', (_, e) => ({ turnId: e.turnId }))
-  on('turn.complete', () => ({ text: '' }))
-  return { state, afters, toasts, store }
-}
+import { HINT, PANE } from './kit'
+import type { Dollar } from './kit'
+import { engine, runStep, step } from './live'
 
 const turn = async ($: Dollar, id: string) => {
   await $.turn.start({ text: 'hi', turnId: id })
@@ -184,19 +143,6 @@ test('tool.check, which runs inside the tool call, marks the call as waiting bef
   await $.tool.call({ tool: 'Bash', command: 'git push', tool_use_id: 'u1' })
   expect(toasts).toEqual([])
 })
-
-// A step mock: one chunk, then an answer.
-const step = (on: On) =>
-  on('turn.step', async function* (_, e) {
-    yield { kind: 'text', index: 0, text: 'hi', ref: 1 }
-    return { turnId: e.turnId, index: e.index, answer: 'hi', toolUses: [], stopReason: 'end_turn', usage: { model: 'claude-opus-5-5', input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } }
-  })
-
-const runStep = async ($: Dollar, turnId: string) => {
-  for await (const _ of $.turn.step({ turnId, index: 0, model: 'claude-opus-5-5', messageCount: 1 })) {
-    // Read the stream to its end.
-  }
-}
 
 test('the cache countdown runs from the last request, and /clear leaves no countdown for the new conversation', async ($, on) => {
   const { state } = engine(on)
@@ -400,129 +346,6 @@ test('between turns the strip stays, still, with the last turn faded; before a t
   await cleared.unmount()
 })
 
-test('the pane header has a dot that pulses green while a turn runs and stays grey and still between turns', async ($, on) => {
-  const { state } = engine(on)
-  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  const dot = async () => {
-    const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
-    const found = (await pane.findAll({ type: 'Svg' })).find(c => c.props.width === 12)
-    await pane.unmount()
-    return found
-  }
-  const idle = await dot()
-  expect(idle?.props.alt).toBe('No turn running')
-  expect(String(idle?.props.source)).toContain('#8b949e')
-  expect(String(idle?.props.source)).not.toContain('class="ring"')
-  await $.turn.start({ text: 'hi', turnId: 't1' })
-  state.now += 12_000
-  const busy = await dot()
-  expect(busy?.props.alt).toBe('Working · running 12s')
-  expect(String(busy?.props.source)).toContain('#3fb950')
-  expect(String(busy?.props.source)).toContain('class="ring"')
-  const term = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await term.find({ type: 'Text', text: '●' }))?.props.color).toBe('success')
-  expect(await term.find({ type: 'Text', text: 'Elapsed · running 12s' })).toBeDefined()
-  await term.unmount()
-})
-
-test('a band across the top of the pane is green and sweeps while a turn runs, amber when it stalls, and a grey track between turns', async ($, on) => {
-  const { state } = engine(on)
-  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  const band = async (word: string) => {
-    const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
-    const svg = (await pane.findAll({ type: 'Svg' })).find(c => c.props.alt === `Turn state: ${word}`)
-    const color = (await pane.find({ type: 'Text', text: word }))?.props.color
-    await pane.unmount()
-    const term = await $.ui.mount({ ...PANE, surface: 'terminal' })
-    const rule = (await term.find({ type: 'Text', text: /^━+$/ }))?.props
-    await term.unmount()
-    return { source: String(svg?.props.source), color, rule }
-  }
-  const idle = await band('Idle')
-  expect(idle.source).toContain('height="4"')
-  expect(idle.source).not.toContain('#3fb950')
-  expect(idle.color).toBeUndefined()
-  expect(idle.rule).toMatchObject({ dimColor: true })
-  await $.turn.start({ text: 'hi', turnId: 't1' })
-  state.now += 12_000
-  const busy = await band('Live')
-  expect(busy.source).toContain('#3fb950')
-  expect(busy.source).toContain('class="sweep"')
-  // The sheen moves in step with the dot and the strip, is clipped to the band, and stops for reduced motion.
-  expect(busy.source).toContain(`animation-delay:-${12_000 % PULSE_MS}ms`)
-  expect(busy.source).toContain('clip-path="url(#band)"')
-  expect(busy.source).toContain('prefers-reduced-motion: reduce){.sweep{animation:none')
-  expect(busy.color).toBe('success')
-  expect(busy.rule?.color).toBe('success')
-  state.now += 4 * 60_000
-  const stalled = await band('Stalled')
-  expect(stalled.source).toContain('#d29922')
-  expect(stalled.source).not.toContain('class="sweep"')
-  expect(stalled.color).toBe('warning')
-  expect(stalled.rule?.color).toBe('warning')
-})
-
-test('a tool that fails 3 times in a row gives one toast; a success or a new turn starts the count again', async ($, on) => {
-  const { toasts } = engine(on)
-  const answers: Record<string, unknown> = { Bash: { result: {}, isError: true, text: 'exit 1' }, Read: { result: {} } }
-  on('tool.check', () => ({ decision: 'allow' }))
-  on('tool.call', (_, e) => (answers[e.tool] ?? { result: {} }) as never)
-  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  await $.turn.start({ text: 'hi', turnId: 't1' })
-  const call = (tool: string, n: number) => $.tool.call({ tool, command: 'npm test', file_path: '/a.ts', tool_use_id: `${tool}${n}` } as never)
-  await call('Bash', 1)
-  // Another tool between the failures does not break the loop.
-  await call('Read', 2)
-  await call('Bash', 3)
-  expect(toasts).toEqual([])
-  await call('Bash', 4)
-  expect(toasts).toEqual(['\u26a0 Pulse: Bash (npm) failed 3 times in a row.'])
-  await call('Bash', 5)
-  expect(toasts.length).toBe(1)
-
-  answers.Bash = { result: {} }
-  await call('Bash', 6)
-  answers.Bash = { result: {}, isError: true, text: 'exit 1' }
-  await call('Bash', 7)
-  await call('Bash', 8)
-  await $.turn.complete({ answer: '', durationMs: 1_000, isAborted: false, turnId: 't1', reason: 'answer' })
-  await $.turn.start({ text: 'again', turnId: 't2' })
-  await call('Bash', 9)
-  await call('Bash', 10)
-  expect(toasts.length).toBe(1)
-  await call('Bash', 11)
-  expect(toasts.length).toBe(2)
-})
-
-test('a subagent counts its failures apart and says so; a refused call starts the count again; parallel failures are one try', async ($, on) => {
-  const { state, toasts } = engine(on)
-  // Each call takes 1 s on the clock, so calls in a row never overlap.
-  on('tool.check', (_, e) => ({ decision: e.tool_use_id === 'b5' ? 'deny' : 'allow' }))
-  on('tool.call', (_, e) => {
-    state.now += 1_000
-    return (e.tool_use_id === 'b5' ? { deny: 'Permission denied' } : { result: {}, isError: true, text: 'exit 1' }) as never
-  })
-  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  await $.turn.start({ text: 'hi', turnId: 't1' })
-  const bash = (n: number, agentId?: string, command = 'npm test') => $.tool.call({ tool: 'Bash', command, tool_use_id: `b${n}`, agentId } as never)
-  await bash(1)
-  await bash(2, 'a1')
-  await bash(3)
-  await bash(4, 'a1')
-  // A refusal is no failure, so the main loop's count starts again.
-  await bash(5, undefined, 'rm -rf /')
-  await bash(6)
-  await bash(7, 'a1')
-  expect(toasts).toEqual(['\u26a0 Pulse: Bash (npm) failed 3 times in a row in a subagent.'])
-  await bash(8)
-  expect(toasts.length).toBe(1)
-
-  // Three failures that run together are one try, so no toast.
-  await $.turn.start({ text: 'again', turnId: 't2' })
-  await Promise.all([bash(9), bash(10), bash(11)])
-  expect(toasts.length).toBe(1)
-})
-
 test('the last turn names the three tools that took the most time, with their counts, and leaves out calls put to approval', () => {
   const tool = (name: string, fromMs: number, toMs: number, waits = false) => ({ kind: 'tool' as const, name, detail: '', fromMs, toMs, waits })
   const steps = [
@@ -557,80 +380,4 @@ test('between turns the pane names the tool time of the last turn, without the c
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await pane.find({ type: 'Text', text: 'Tool time: Bash 2s' })).toBeDefined()
   await pane.unmount()
-})
-
-test("the budget mark of another session holds back a toast only for the same day and the same budget", { options: { dailyBudgetUsd: 1 } }, async ($, on) => {
-  const { state, toasts, store } = engine(on)
-  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  const passWith = async (mark: { day: string; level: number; budget: number }, id: string) => {
-    store.set('budget', mark)
-    await $.turn.start({ text: 'hi', turnId: id })
-    state.cost += 2
-    await $.turn.complete({ answer: '', durationMs: 1_000, isAborted: false, turnId: id, reason: 'answer' })
-  }
-  // The ledger keys the local day, so the test reads it the same way; an earlier day's mark is a day that has passed.
-  const today = dayKey(state.now)
-  await passWith({ day: today, level: 1, budget: 1 }, 't1')
-  expect(toasts).toEqual([])
-  await passWith({ day: today, level: 1, budget: 2 }, 't2')
-  expect(toasts.length).toBe(1)
-  await passWith({ day: '2000-01-01', level: 1, budget: 1 }, 't3')
-  expect(toasts.length).toBe(2)
-})
-
-test('a spend that jumps past the budget in one turn gives one toast, and the History caption turns red', { options: { dailyBudgetUsd: 1 } }, async ($, on) => {
-  const { state, toasts } = engine(on)
-  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  await $.turn.start({ text: 'hi', turnId: 't1' })
-  state.cost = 2
-  await $.turn.complete({ answer: '', durationMs: 1_000, isAborted: false, turnId: 't1', reason: 'answer' })
-  expect(toasts).toEqual(["\u26a0 Pulse: today's spend of $1.50 has passed the $1.00 daily budget."])
-  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await pane.find({ type: 'Text', text: 'Today is at 150% of the daily budget.' }))?.props.color).toBe('error')
-  await pane.unmount()
-})
-
-test('a daily budget toasts once at 80% and once at 100%, and the History meta shows the share', { options: { dailyBudgetUsd: 1 } }, async ($, on) => {
-  const { state, toasts } = engine(on)
-  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  const spend = async (id: string, cost: number) => {
-    await $.turn.start({ text: 'hi', turnId: id })
-    state.cost = cost
-    await $.turn.complete({ answer: '', durationMs: 1_000, isAborted: false, turnId: id, reason: 'answer' })
-  }
-  await spend('t1', 1.0)
-  expect(toasts).toEqual([])
-  await spend('t2', 1.3)
-  expect(toasts).toEqual(["\u26a0 Pulse: today's spend of $0.8000 is 80% of the $1.00 daily budget."])
-  await spend('t3', 1.4)
-  expect(toasts.length).toBe(1)
-  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await pane.find({ type: 'Text', text: /^today \$0\.9000 of \$1\.00 · 7 days/ })).toBeDefined()
-  expect((await pane.find({ type: 'Text', text: 'Today is at 90% of the daily budget.' }))?.props.color).toBe('warning')
-  await pane.unmount()
-  await spend('t4', 1.6)
-  expect(toasts[1]).toBe("\u26a0 Pulse: today's spend of $1.10 has passed the $1.00 daily budget.")
-  await spend('t5', 1.7)
-  expect(toasts.length).toBe(2)
-})
-
-test("a subagent's end starts its count again, and the main loop's count goes on", async ($, on) => {
-  const { state, toasts } = engine(on)
-  on('tool.check', () => ({ decision: 'allow' }))
-  on('tool.call', () => {
-    state.now += 1_000
-    return { result: {}, isError: true, text: 'exit 1' } as never
-  })
-  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  await $.turn.start({ text: 'hi', turnId: 't1' })
-  const bash = (n: number, agentId?: string) => $.tool.call({ tool: 'Bash', command: 'npm test', tool_use_id: `b${n}`, agentId } as never)
-  await bash(1, 'a1')
-  await bash(2, 'a1')
-  await bash(3)
-  await bash(4)
-  await $.turn.complete({ answer: '', durationMs: 1_000, isAborted: false, turnId: 'a1-turn', reason: 'answer', agentId: 'a1' } as never)
-  await bash(5, 'a1')
-  expect(toasts).toEqual([])
-  await bash(6)
-  expect(toasts).toEqual(['\u26a0 Pulse: Bash (npm) failed 3 times in a row.'])
 })

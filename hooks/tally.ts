@@ -5,7 +5,8 @@ import type { AgentStat, Metrics, ModelStat, RateStart, SlowCall, StepStats, Tur
 import { callLabel } from './label'
 import { quietly } from './quietly'
 import { EMPTY, EMPTY_TOOL, IDLE, MAX_TURNS, SHAPE } from './state'
-import { taskNotice, taskOf } from './tasks'
+import { taskNotices, taskOf, taskStopped } from './tasks'
+import type { TaskEnd } from './tasks'
 
 // The state scan reads an atom only where its file declares it, so each file that reads or writes Metrics declares the same one.
 const metrics = atom({ plugin: 'pulse', key: 'metrics' } as const, EMPTY, { shape: SHAPE })
@@ -217,7 +218,7 @@ function toolCalled(m: Metrics, o: ToolObservation): Metrics {
   const path = o.input.file_path ?? o.input.notebook_path
   const file = !failed && FILE_TOOLS.has(o.tool) && typeof path === 'string' ? path : null
   const files = file === null ? m.files : count(m.files, file)
-  return {
+  const called: Metrics = {
     ...m,
     toolCalls: m.toolCalls + 1,
     toolErrors: m.toolErrors + (failed ? 1 : 0),
@@ -242,6 +243,9 @@ function toolCalled(m: Metrics, o: ToolObservation): Metrics {
     // The running turn counts the main loop's calls, as its steps do; a subagent's calls are its own.
     running: isMain ? { ...m.running, toolCalls: m.running.toolCalls + 1 } : m.running,
   }
+  // A task that TaskStop ends sends no notification, so the call that stops it ends it.
+  const stopped = failed || !isMain || o.tool !== 'TaskStop' ? undefined : taskStopped(o.input)
+  return stopped === undefined || o.endedAt === undefined ? called : taskEnded(called, stopped, 'stopped', o.endedAt)
 }
 
 function stepEnded(m: Metrics, o: Extract<Observation, { kind: 'step' }>): Metrics {
@@ -269,21 +273,23 @@ function stepEnded(m: Metrics, o: Extract<Observation, { kind: 'step' }>): Metri
   }
 }
 
-// A notification reports on a background task; `killed` is a stop by the person or by Claude, not a failure.
-function taskSettled(m: Metrics, o: Extract<Observation, { kind: 'notice' }>): Metrics {
-  const notice = taskNotice(o.text)
-  const task = notice === undefined ? undefined : m.tasks[notice.id]
-  if (notice?.ended === undefined || task === undefined) return m
-  const { [notice.id]: _, ...tasks } = m.tasks
-  const ms = Math.max(0, o.now - task.startedAt)
+// A notification reports on background tasks; `killed` is a stop by the person or by Claude, not a failure.
+const noticed = (m: Metrics, o: Extract<Observation, { kind: 'notice' }>): Metrics =>
+  taskNotices(o.text).reduce((held, n) => (n.ended === undefined ? held : taskEnded(held, n.id, n.ended, o.now)), m)
+
+function taskEnded(m: Metrics, id: string, ended: TaskEnd, now: number): Metrics {
+  const task = m.tasks[id]
+  if (task === undefined) return m
+  const { [id]: _, ...tasks } = m.tasks
+  const ms = Math.max(0, now - task.startedAt)
   const held = m.background
   return {
     ...m,
     tasks,
     background: {
       count: held.count + 1,
-      failed: held.failed + (notice.ended === 'failed' ? 1 : 0),
-      stopped: held.stopped + (notice.ended === 'stopped' ? 1 : 0),
+      failed: held.failed + (ended === 'failed' ? 1 : 0),
+      stopped: held.stopped + (ended === 'stopped' ? 1 : 0),
       ms: held.ms + ms,
     },
     slowest: pushSlow(m.slowest, { tool: task.tool, ms, label: task.label, background: true }),
@@ -328,7 +334,7 @@ export function apply(m: Metrics, o: Observation): Metrics {
     case 'step':
       return stepEnded(m, o)
     case 'notice':
-      return taskSettled(m, o)
+      return noticed(m, o)
     case 'spawn':
       return spawned(m, o)
     case 'compaction':
