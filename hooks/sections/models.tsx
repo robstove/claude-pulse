@@ -1,5 +1,5 @@
 import type { ModelStat } from '../../types'
-import { FONT, HEX, esc, fmtMs, fmtNum, plural, svg } from '../charts'
+import { FONT, HEX, esc, fmtMs, fmtNum, plural, svg, textW } from '../charts'
 import type { Section } from './ui'
 
 /** `claude-opus-5-5` reads as `opus-5-5`; the hover title keeps the full id. */
@@ -9,7 +9,8 @@ export const modelLabel = (id: string): string => id.replace(/^claude-/, '')
 const modelsSvg = (w: number, models: readonly [string, ModelStat][]): string => {
   const rowH = 20
   const labelW = Math.min(132, Math.round(w * 0.32))
-  const statW = 92
+  const stat = (s: ModelStat) => `${plural(s.turns, 'turn')} · ${fmtNum(s.outputTokens)} out`
+  const statW = Math.max(48, textW(models.map(([, s]) => stat(s))))
   const barW = w - labelW - statW - 8
   const total = (s: ModelStat) => s.cacheReadTokens + s.cacheWriteTokens + s.inputTokens + s.outputTokens
   const max = Math.max(1, ...models.map(([, s]) => total(s)))
@@ -43,7 +44,7 @@ const modelsSvg = (w: number, models: readonly [string, ModelStat][]): string =>
       `<rect x="${labelW}" y="${y + 6}" width="${barW}" height="8" rx="4" fill="${HEX.track}"/>` +
       `<g clip-path="url(#m${i})">${segs.join('')}</g>` +
       `<text x="${w}" y="${y + 14}" text-anchor="end" fill="${HEX.muted}" font-size="11" font-variant-numeric="tabular-nums" ${FONT}>` +
-      `${plural(s.turns, 'turn')} · ${esc(fmtNum(s.outputTokens))} out</text></g>`
+      `${esc(stat(s))}</text></g>`
     )
   })
   return svg(w, Math.max(rowH, models.length * rowH), rows.join(''))

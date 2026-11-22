@@ -1,7 +1,7 @@
 import type { BoxProps, ElementConstructor, RenderElement, SessionUsage, SvgProps, TextProps } from 'claude-code'
 
 import type { Metrics } from '../../types'
-import { blockBar, heightOf } from '../charts'
+import { blockBar } from '../charts'
 
 /** The elements of the surface that draws the pane; Svg only where the surface draws charts. */
 export type Kit = {
@@ -48,7 +48,7 @@ export type Ui = Kit & {
   /** The bar width in terminal cells. */
   cells: number
   section: (title: string, meta: RenderElement | string, body: Body) => RenderElement
-  chart: (source: string, alt: string, isInteractive?: boolean) => RenderElement | null
+  chart: (source: string, alt: string) => RenderElement | null
   /** A bar of block characters, `cells` wide unless a row puts a label before it. */
   termBar: (frac: number, color: string, width?: number) => RenderElement
   /** A small line of text, dim unless it has a color. */
@@ -58,12 +58,12 @@ export type Ui = Kit & {
 /** One part of the pane, drawn from the figures; null or false when it has nothing to show. */
 export type Section = (ui: Ui, d: PaneData) => RenderElement | null | false
 
-// A remote surface counts cells in its code font, and the desktop app's run about 9px. A chart drawn a little wider than the
-// body reaches its right edge: an Svg with no width prop scales down to its slot, never up, so a narrow guess left a gap.
-const PX_PER_CELL = 9
+// A chart scales to its slot's width, so drawing near that width keeps its text near its own size. The desktop app's columns
+// measured 7px to 9px each across pane widths; 8 keeps the scale within about an eighth of 1 either way.
+const PX_PER_CELL = 8
 
 export const makeUi = ({ Box, Text, Svg }: Kit, columns: number): Ui => {
-  const px = Math.max(220, Math.min(960, Math.floor(columns * PX_PER_CELL)))
+  const px = Math.max(220, Math.min(2_000, Math.floor(columns * PX_PER_CELL)))
   const cells = Math.max(16, columns - 2)
   return {
     Box,
@@ -88,8 +88,9 @@ export const makeUi = ({ Box, Text, Svg }: Kit, columns: number): Ui => {
         {body}
       </Box>
     ),
-    chart: (source, alt, isInteractive = true) =>
-      Svg ? <Svg source={source} alt={alt} height={heightOf(source)} isInteractive={isInteractive || undefined} /> : null,
+    // An image with no size props fills its slot's width at the markup's aspect, so its height follows. An interactive frame
+    // cannot: with no height it stands 150px tall, and with one the drawing keeps its own scale, centered in a wider slot.
+    chart: (source, alt) => (Svg ? <Svg source={source} alt={alt} /> : null),
     termBar: (frac, color, width = cells) => {
       const [filled, empty] = blockBar(frac, width)
       return (

@@ -55,10 +55,10 @@ function html(node, inText = false) {
   const p = node.props ?? {}
   const kids = node.children ?? []
   // The Svg source goes in raw: it is markup that Pulse's own chart code builds, never text from a session.
-  // With no width prop the app fits the chart to its slot, scaling it down, never up; the box does the same here.
+  // With no size props the app fits the chart to its slot's width at the markup's aspect; the box does the same here.
   if (node.type === 'Svg') {
-    const width = p.width === undefined ? `min(100%, ${/width="(\d+)"/.exec(p.source)?.[1] ?? 0}px)` : length(p.width)
-    return `<div class="chart" style="width:${width};height:${length(p.height)};flex:none">${p.source}</div>`
+    const size = p.width === undefined ? 'width:100%' : `width:${length(p.width)};height:${length(p.height)}`
+    return `<div class="chart" style="${size};flex:none">${p.source}</div>`
   }
   if (node.type === 'Text') {
     const [size, weight] = SIZE[p.size] ?? (inText ? [] : SIZE.body)
@@ -94,7 +94,7 @@ const page = tree => `<!doctype html><meta charset="utf-8"><style>
   header span { color: ${MUTED}; font-size: 12px; }
   main { padding: 16px; }
   svg { display: block; }
-  .chart svg { width: 100%; height: 100%; }
+  .chart svg { width: 100%; height: auto; }
 </style><div id="pane"><header>Pulse<span>v${esc(VERSION)} · made-up session</span></header><main>${html(tree)}</main></div>`
 
 const { chromium } = await import('playwright')

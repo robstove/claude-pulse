@@ -23,6 +23,9 @@ export const THEME = { ok: 'success', warn: 'warning', bad: 'error' } as const
 
 export const FONT = 'font-family="system-ui,-apple-system,Segoe UI,sans-serif"'
 
+/** The width of the widest of `texts` at 11px, at 0.6em a character (a tabular digit's width), so a column holds its longest entry. */
+export const textW = (texts: readonly string[], fontPx = 11): number => Math.ceil(Math.max(0, ...texts.map(t => t.length)) * fontPx * 0.6)
+
 export const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`
 
 export const fmtNum = (n: number): string =>
@@ -48,9 +51,6 @@ export const esc = (s: string): string =>
 
 export const svg = (w: number, h: number, body: string): string =>
   `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${body}</svg>`
-
-/** The height the markup declares, so an interactive frame is not left at its 150px default. */
-export const heightOf = (source: string): number => Number(/height="(\d+)"/.exec(source)?.[1] ?? 0)
 
 /** One bar split by share, with a hover title on each part. */
 export const stackSvg = (w: number, parts: readonly { value: number; color: string; label: string }[]): string => {

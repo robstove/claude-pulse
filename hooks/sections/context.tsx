@@ -106,7 +106,7 @@ export const context: Section = (ui, { m, usage, live, compactAt }) => {
     </Text>,
     [
       ui.Svg
-        ? ui.chart(gaugeSvg(ui.px, pct), known === undefined ? 'Context fill not known yet' : `Context ${pct}% full`, false)
+        ? ui.chart(gaugeSvg(ui.px, pct), known === undefined ? 'Context fill not known yet' : `Context ${pct}% full`)
         : ui.termBar(pct / 100, known === undefined ? 'suggestion' : THEME[lvl]),
       ui.Svg && m.turns.some(t => t.contextPct !== null)
         ? ui.chart(contextSvg(ui.px, m.turns, firstTurn, m.compactions, live !== null), 'Context fill per turn')

@@ -1,5 +1,5 @@
 import type { Metrics, ToolStat } from '../../types'
-import { FONT, HEX, blockBar, esc, fmtMs, svg } from '../charts'
+import { FONT, HEX, blockBar, esc, fmtMs, svg, textW } from '../charts'
 import type { Section, Ui } from './ui'
 
 /** `mcp__server__tool` reads as `tool`, so two tools of one server do not truncate to the same label. */
@@ -19,7 +19,8 @@ const percentile = (xs: readonly number[], p: number): number => {
 const toolsSvg = (w: number, tools: readonly [string, ToolStat][]): string => {
   const rowH = 20
   const labelW = Math.min(132, Math.round(w * 0.32))
-  const statW = 64
+  const stat = (s: ToolStat) => `${s.count}× ${s.waited === s.count ? 'approval' : fmtMs(s.ms)}`
+  const statW = Math.max(48, textW(tools.map(([, s]) => stat(s))))
   const barW = w - labelW - statW - 8
   const max = Math.max(1, ...tools.map(([, s]) => s.ms))
   const rows = tools.map(([name, s], i) => {
@@ -40,7 +41,7 @@ const toolsSvg = (w: number, tools: readonly [string, ToolStat][]): string => {
         ? `<rect x="${(labelW + bw - errW).toFixed(1)}" y="${y + 6}" width="${Math.max(errW, 3).toFixed(1)}" height="8" rx="4" fill="${HEX.bad}"/>`
         : '') +
       `<text x="${w}" y="${y + 14}" text-anchor="end" fill="${HEX.muted}" font-size="11" font-variant-numeric="tabular-nums" ${FONT}>` +
-      `${s.count}× ${s.waited === s.count ? 'approval' : esc(fmtMs(s.ms))}</text></g>`
+      `${esc(stat(s))}</text></g>`
     )
   })
   return svg(w, Math.max(rowH, tools.length * rowH), rows.join(''))
