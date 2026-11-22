@@ -13,7 +13,7 @@ import { statusText } from './status'
 import { costSince, record } from './tally'
 import { observeTools } from './tools'
 import { VERSION } from './version'
-import { quiet, shouldAlert, stepLog, watchStart, watchStop } from './watch'
+import { lastTurn, quiet, shouldAlert, stepLog, watchStart, watchStop } from './watch'
 
 // The state scan reads an atom only where its file declares it, so each file that reads or writes Metrics declares the same one.
 const metrics = atom({ plugin: 'pulse', key: 'metrics' } as const, EMPTY, { shape: SHAPE })
@@ -165,11 +165,10 @@ export const register: Register = (on, options) => {
 
   on('turn.complete', async ($, e, next) => {
     const isMain = e.agentId === undefined
-    if (isMain) {
-      stopTicker()
-      watchStop()
-    }
+    if (isMain) stopTicker()
     const now = await quietly(() => $.clock.now())
+    // The turn's steps stay on the strip, still, until the next turn starts.
+    if (isMain) watchStop(now)
     const s = isMain ? await quietly(() => $.session.usage()) : undefined
     // The summary breakdown is counted locally and sends no request; it is the one place the auto-compact point shows. It is a
     // call of its own, so a failed estimate costs the runway only, not the turn's figures.
@@ -257,6 +256,7 @@ export const register: Register = (on, options) => {
                   stallMs: prefs.stallMinutes * 60_000,
                 }
               : null,
+          lastTurn: lastTurn(),
           cacheLeftMs: cacheLeftMs(m, usage, now),
           cacheTtlMs: cacheTtlMs(usage),
           compactAt,

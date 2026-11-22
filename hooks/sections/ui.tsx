@@ -27,6 +27,8 @@ export type LiveTurn = {
 
 export type PaneData = {
   m: Metrics
+  /** The last finished turn's steps, which the strip shows still between turns; null before one ends in this conversation. */
+  lastTurn: { ms: number; steps: LiveStep[] } | null
   usage: SessionUsage
   now: number
   /** Cost per local day across sessions, from the store. */

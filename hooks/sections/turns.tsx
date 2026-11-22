@@ -102,22 +102,26 @@ export const liveStatus = (live: LiveTurn): { open: LiveStep | undefined; stalle
 
 // The running turn on its own time axis: requests blue, tool calls grey, compactions purple. The open step is green with a
 // shimmer and a pulsing dot; past the stall limit it is amber and still, so motion means work.
-export const stripSvg = (w: number, live: LiveTurn): string => {
-  const { open, stalled, waiting, now, counts } = liveStatus(live)
-  const still = stalled || waiting
+// Between turns (`idleText` given) it shows the last turn's steps faded under a grey still dot, in the same space, so nothing below moves.
+export const stripSvg = (w: number, live: LiveTurn, idleText?: string): string => {
+  const idle = idleText !== undefined
+  const status = liveStatus(live)
+  const { open, stalled, waiting, counts } = status
+  const now = idleText ?? status.now
+  const still = idle || stalled || waiting
   const total = Math.max(1, live.ms)
   const h = 38
   const x = (ms: number) => (Math.min(ms, total) / total) * w
   const phase = `animation-delay:-${Math.round(live.ms % SHIMMER_MS)}ms`
   // Running is green, the pane's healthy colour: an orange step read as a failure beside the red of failed calls.
-  const color = stalled ? HEX.warn : waiting ? HEX.muted : HEX.ok
+  const color = idle || waiting ? HEX.muted : stalled ? HEX.warn : HEX.ok
   const closed = live.steps
     .filter(s => s !== open)
     .map(s => {
       const x0 = x(s.fromMs)
       const width = Math.max(2, x(s.toMs ?? total) - x0 - 1)
       const fill = s.toMs === null ? color : STEP_COLOR[s.kind]
-      return `<rect x="${x0.toFixed(1)}" y="3" width="${width.toFixed(1)}" height="8" rx="2" fill="${fill}"/>`
+      return `<rect x="${x0.toFixed(1)}" y="3" width="${width.toFixed(1)}" height="8" rx="2" fill="${fill}"${idle ? ' opacity="0.45"' : ''}/>`
     })
   let current = ''
   if (open !== undefined) {
@@ -150,12 +154,21 @@ export const stripSvg = (w: number, live: LiveTurn): string => {
       closed.join('') +
       dot +
       `<text x="14" y="32" fill="${color}" font-size="11" font-weight="600" ${FONT}>${esc(now)}</text>` +
-      `<text x="${w}" y="32" text-anchor="end" fill="${HEX.muted}" font-size="11" font-variant-numeric="tabular-nums" ${FONT}>${esc(counts)}</text>`,
+      (live.steps.length > 0 || !idle
+        ? `<text x="${w}" y="32" text-anchor="end" fill="${HEX.muted}" font-size="11" font-variant-numeric="tabular-nums" ${FONT}>${esc(counts)}</text>`
+        : ''),
   )
 }
 
-/** The running turn's strip, or its status as a line where the surface draws no charts. */
-const liveStrip = (ui: Ui, live: LiveTurn) => {
+/** The running turn's strip, or between turns the last one's, still; a line where the surface draws no charts. */
+const liveStrip = (ui: Ui, live: LiveTurn | null, last: { ms: number; steps: LiveStep[] } | null, lastTurnMs: number) => {
+  if (live === null) {
+    const past: LiveTurn = { ms: last?.ms ?? 0, toolCalls: 0, steps: last?.steps ?? [], quietMs: 0, stallMs: 0 }
+    // The turn's own duration, as the hint and the header show it, not the hook's clock readings.
+    const idle = past.steps.length > 0 ? `Idle · last turn ${fmtMs(lastTurnMs)}` : 'Idle'
+    const line = past.steps.length > 0 ? `${idle} · ${liveStatus(past).counts}` : idle
+    return ui.Svg ? ui.chart(stripSvg(ui.px, past, idle), line) : ui.caption(line)
+  }
   if (ui.Svg) return ui.chart(stripSvg(ui.px, live), `Running turn: ${liveStatus(live).now}`)
   const { stalled, now, counts } = liveStatus(live)
   return ui.caption(`${now} · ${counts}`, stalled ? 'warning' : undefined)
@@ -171,7 +184,7 @@ const endsLine = (ui: Ui, m: Metrics) => {
 }
 
 /** Time and cost per turn, the running turn, model requests, and the turns that did not answer. */
-export const turns: Section = (ui, { m, live }) => {
+export const turns: Section = (ui, { m, live, lastTurn }) => {
   const { Text } = ui
   const avgMs = m.mainTurns > 0 ? m.turnMsTotal / m.mainTurns : 0
   const costPending = m.turns.length > 0 && m.turns.every(t => t.costUsd === null)
@@ -190,7 +203,7 @@ export const turns: Section = (ui, { m, live }) => {
       `${plural(m.mainTurns, 'turn')}${m.agentTurns > 0 ? ` + ${m.agentTurns} subagent` : ''} · avg ${fmtMs(avgMs)} · max ${fmtMs(m.longestTurnMs)}`
     ),
     [
-      live && liveStrip(ui, live),
+      liveStrip(ui, live, lastTurn, m.lastTurnMs),
       ui.Svg ? (
         ui.chart(turnsSvg(ui.px, m.turns, firstTurn, live), `Turn time and cost, last ${fmtMs(m.lastTurnMs)}`)
       ) : (

@@ -363,3 +363,32 @@ test('a request that throws mid-stream ends its step, so the strip shows nothing
   expect(await term.find({ type: 'Text', text: 'Working · running 2s · 1 request · 0 calls' })).toBeDefined()
   await term.unmount()
 })
+
+test('between turns the strip stays, still, with the last turn faded; before a turn and after /clear it says Idle', async ($, on) => {
+  const { state } = engine(on)
+  step(on)
+  on('session.end', () => ({ sessionId: 'abc' }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const fresh = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await fresh.find({ type: 'Text', text: 'Idle' })).toBeDefined()
+  await fresh.unmount()
+
+  await $.turn.start({ text: 'hi', turnId: 't1' })
+  await runStep($, 't1')
+  state.now += 4_000
+  await $.turn.complete({ answer: '', durationMs: 4_000, isAborted: false, turnId: 't1', reason: 'answer' })
+  const term = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await term.find({ type: 'Text', text: 'Idle · last turn 4s · 1 request · 0 calls' })).toBeDefined()
+  await term.unmount()
+  const desk = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const strip = (await desk.findAll({ type: 'Svg' })).find(c => String(c.props.alt).startsWith('Idle'))
+  expect(String(strip?.props.source)).toContain('opacity="0.45"')
+  expect(String(strip?.props.source)).not.toContain('class="sweep"')
+  expect(String(strip?.props.source)).not.toContain('class="ring"')
+  await desk.unmount()
+
+  await $.session.end({ reason: 'clear', sessionId: 'abc', resume: { id: 'abc' } })
+  const cleared = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await cleared.find({ type: 'Text', text: 'Idle' })).toBeDefined()
+  await cleared.unmount()
+})

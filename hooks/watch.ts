@@ -10,8 +10,13 @@ export type Step = { kind: 'request' | 'tool' | 'compact'; name: string; detail:
 // A long turn keeps its newest steps; older ones are too thin to draw.
 const MAX_STEPS = 300
 
+/** A finished turn's steps in ms from its start, kept so the strip stays in place, still, between turns. */
+export type PastTurn = { ms: number; steps: { kind: Step['kind']; name: string; detail: string; fromMs: number; toMs: number; waits: false }[] }
+
 const open = new Map<string, OpenCall>()
 let steps: Step[] = []
+let turnStartedAt: number | null = null
+let pastTurn: PastTurn | null = null
 const openSteps = new Map<string, Step>()
 let lastProgressAt: number | null = null
 let alerted = false
@@ -20,6 +25,7 @@ let moved = false
 
 /** A turn starts: nothing is open, and the quiet time counts from now. */
 export const watchStart = (now: number): void => {
+  turnStartedAt = now
   open.clear()
   steps = []
   openSteps.clear()
@@ -84,7 +90,27 @@ export const callEnded = (id: string, now: number): void => {
 /** The running turn's steps, oldest first, as copies the pane can keep. */
 export const stepLog = (): Step[] => steps.map(s => ({ ...s }))
 
-export const watchStop = (): void => {
+/** The last finished turn of this conversation, or null before one ends here. */
+export const lastTurn = (): PastTurn | null => pastTurn
+
+/** A turn ends at `endedAt` and is kept for the idle strip; with no time (a session that ends) nothing is kept. */
+export const watchStop = (endedAt?: number): void => {
+  const t0 = turnStartedAt
+  pastTurn =
+    endedAt === undefined || t0 === null
+      ? null
+      : {
+          ms: Math.max(0, endedAt - t0),
+          steps: steps.map(s => ({
+            kind: s.kind,
+            name: s.name,
+            detail: s.detail,
+            fromMs: Math.max(0, s.startedAt - t0),
+            toMs: Math.max(0, (s.endedAt ?? endedAt) - t0),
+            waits: false as const,
+          })),
+        }
+  turnStartedAt = null
   open.clear()
   steps = []
   openSteps.clear()
