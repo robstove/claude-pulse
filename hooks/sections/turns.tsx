@@ -1,5 +1,6 @@
 import type { Metrics, TurnRecord } from '../../types'
 import { FONT, HEX, esc, fmtMs, fmtNum, fmtUsd, plural, sparkline, svg } from '../charts'
+import { toolLabel } from '../label'
 import type { LiveStep, LiveTurn, Section, Ui } from './ui'
 
 /** Turn time over cost per turn on one x-axis, newest at the right; a turn of unknown cost draws a stub to keep the column. */
@@ -104,7 +105,7 @@ export const liveStatus = (live: LiveTurn): { open: LiveStep | undefined; stalle
   // writes is put to the classifier: it shows as running, and never as a stall, since its wait may be the person's.
   const waiting = open?.waits === true
   const stalled = !waiting && live.stallMs > 0 && live.quietMs >= live.stallMs
-  const what = open === undefined ? 'Working' : `${open.name}${open.detail !== '' ? ` · ${open.detail.length > 40 ? `${open.detail.slice(0, 39)}…` : open.detail}` : ''}`
+  const what = open === undefined ? 'Working' : `${toolLabel(open.name)}${open.detail !== '' ? ` · ${open.detail.length > 40 ? `${open.detail.slice(0, 39)}…` : open.detail}` : ''}`
   const since = open === undefined ? Math.max(0, ...live.steps.map(s => s.toMs ?? 0)) : open.fromMs
   const quiet = !waiting && live.quietMs >= QUIET_SHOW_MS ? ` · quiet ${wholeSeconds(live.quietMs)}` : ''
   const now = stalled ? `${what} · quiet ${wholeSeconds(live.quietMs)}` : `${what} · running ${wholeSeconds(live.ms - since)}${quiet}`
@@ -176,7 +177,8 @@ const liveStrip = (ui: Ui, live: LiveTurn | null, last: { ms: number; steps: Liv
     const past: LiveTurn = { ms: last?.ms ?? 0, toolCalls: 0, steps: last?.steps ?? [], quietMs: 0, stallMs: 0 }
     // The turn's own duration, as the hint and the header show it, not the hook's clock readings; its cost when it is known.
     const cost = m.turns.at(-1)?.costUsd ?? null
-    const idle = past.steps.length > 0 ? `Idle · last turn ${fmtMs(m.lastTurnMs)}${cost !== null ? ` · ${fmtUsd(cost)}` : ''}` : 'Idle'
+    // The header already says Idle, so the strip names only the last turn; a turn with no steps (/compact) still counts.
+    const idle = m.mainTurns > 0 ? `Last turn ${fmtMs(m.lastTurnMs)}${cost !== null ? ` · ${fmtUsd(cost)}` : ''}` : 'No turn yet'
     const line = past.steps.length > 0 ? `${idle} · ${liveStatus(past).counts}` : idle
     return ui.Svg ? ui.chart(stripSvg(ui.px, past, idle), line) : ui.caption(line)
   }
@@ -194,8 +196,9 @@ export const toolTimeText = (steps: readonly LiveStep[]): string | null => {
   const by = new Map<string, { ms: number; n: number }>()
   for (const s of steps) {
     if (s.kind !== 'tool' || s.waits || s.toMs === null) continue
-    const t = by.get(s.name) ?? { ms: 0, n: 0 }
-    by.set(s.name, { ms: t.ms + (s.toMs - s.fromMs), n: t.n + 1 })
+    const name = toolLabel(s.name)
+    const t = by.get(name) ?? { ms: 0, n: 0 }
+    by.set(name, { ms: t.ms + (s.toMs - s.fromMs), n: t.n + 1 })
   }
   const top = [...by.entries()].sort((a, b) => b[1].ms - a[1].ms).slice(0, TOP_TOOLS)
   return top.length === 0 ? null : `Tool time: ${top.map(([name, t]) => `${name} ${fmtMs(t.ms)}${t.n > 1 ? ` (${t.n})` : ''}`).join(' · ')}`

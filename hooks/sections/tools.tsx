@@ -1,12 +1,7 @@
 import type { Metrics, ToolStat } from '../../types'
 import { FONT, HEX, blockBar, esc, fmtMs, svg, textW } from '../charts'
+import { toolLabel } from '../label'
 import type { Section, Ui } from './ui'
-
-/** `mcp__server__tool` reads as `tool`, so two tools of one server do not truncate to the same label. */
-const toolLabel = (name: string): string => {
-  const parts = name.split('__')
-  return parts.length >= 3 && parts[0] === 'mcp' ? parts.slice(2).join('__') : name
-}
 
 /** Nearest-rank percentile; 0 for no samples. */
 const percentile = (xs: readonly number[], p: number): number => {

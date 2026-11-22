@@ -1,6 +1,11 @@
 import { HEX, plural, stackSvg } from '../charts'
 import type { Section } from './ui'
 
+// The Activity line names this many commands, each cut to NAME_MAX characters.
+const LISTED = 2
+const NAME_MAX = 20
+const cutName = (s: string): string => (s.length > NAME_MAX ? `${s.slice(0, NAME_MAX - 1)}…` : s)
+
 /** Claude's working time against the person's time between turns, with the prompt and slash-command counts. */
 export const activity: Section = (ui, { m }) => {
   // Both counts start when Pulse first loads in the session, so the split compares like with like.
@@ -16,10 +21,12 @@ export const activity: Section = (ui, { m }) => {
     { value: claude, color: HEX.accent, label: 'Claude working' },
     { value: you, color: HEX.muted, label: 'Between turns' },
   ]
-  const listed = commands
-    .slice(0, 4)
-    .map(([c, n]) => `/${c}${n > 1 ? ` ${n}×` : ''}`)
-    .join(', ')
+  // The two most used, without a plugin's namespace, so the line fits the pane; the rest are a count.
+  const listed =
+    commands
+      .slice(0, LISTED)
+      .map(([c, n]) => `/${cutName(c.split(':').at(-1) ?? c)}${n > 1 ? ` ${n}×` : ''}`)
+      .join(', ') + (commands.length > LISTED ? ` +${commands.length - LISTED}` : '')
   return ui.section('Activity', timed ? `Claude ${share}% · you ${100 - share}%` : 'no turn ended yet', [
     timed && (ui.Svg ? ui.chart(stackSvg(ui.px, parts), `Claude worked ${share}% of active time`) : ui.termBar(share / 100, 'suggestion')),
     ui.caption(`${plural(m.prompts, 'prompt')}${cmdCount > 0 ? ` · ${plural(cmdCount, 'command')}: ${listed}` : ''}`),

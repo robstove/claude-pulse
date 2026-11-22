@@ -1,7 +1,7 @@
 import { atom, update } from 'claude-code'
 import type { EngineInterface, SessionRateLimit, TurnUsage } from 'claude-code'
 
-import type { AgentStat, Metrics, ModelStat, RateStart, SlowCall, StepStats, TurnRecord } from '../types'
+import type { AgentStat, Metrics, ModelStat, PastTurn, RateStart, SlowCall, StepStats, TurnRecord } from '../types'
 import { callLabel } from './label'
 import { quietly } from './quietly'
 import { EMPTY, EMPTY_TOOL, IDLE, MAX_TURNS, SHAPE } from './state'
@@ -39,6 +39,8 @@ export type Observation =
       now?: number
       /** The session's figures after a main turn; absent for a subagent's turn, or when the engine did not answer. */
       session?: { costUsd: number | null; contextPct: number | null; rateLimits: readonly SessionRateLimit[] }
+      /** The main turn's steps for the idle strip; absent when Pulse did not watch the turn from its start. */
+      lastTurn?: PastTurn
     }
   | {
       kind: 'tool'
@@ -184,6 +186,8 @@ function turnEnded(m: Metrics, o: Extract<Observation, { kind: 'turn-end' }>): M
     lastCostUsd: priced ? costNow : m.lastCostUsd,
     endReasons: count(m.endReasons, o.reason),
     lastEndedAt: o.now ?? m.lastEndedAt,
+    // An unwatched turn leaves no strip; an older turn's steps under this turn's time would mislead.
+    lastTurn: o.lastTurn,
     rateStart: o.now === undefined ? m.rateStart : nextRateStart(m.rateStart, o.session?.rateLimits ?? [], o.now),
     running: IDLE,
   }

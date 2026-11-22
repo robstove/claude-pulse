@@ -14,6 +14,12 @@ const commandName = (command: string): string => {
   return program.replace(/["']/g, '').split(/[\\/]/).pop() ?? ''
 }
 
+/** `mcp__server__tool` reads as `tool`, so two tools of one server do not truncate to the same label. */
+export const toolLabel = (name: string): string => {
+  const parts = name.split('__')
+  return parts.length >= 3 && parts[0] === 'mcp' ? parts.slice(2).join('__') : name
+}
+
 /** The last two parts of a path, which say which file without a long absolute path. */
 export const shortPath = (path: string): string => path.split(/[\\/]/).filter(Boolean).slice(-2).join('/')
 

@@ -186,6 +186,22 @@ test('a resumed session reloads the metrics it saved', async ($, on) => {
   await ui.unmount()
 })
 
+test('a resumed session shows the strip of its last turn, and each turn saves that strip', async ($, on) => {
+  const held = saved(5)
+  const lastTurn = { ms: 3_000, steps: [{ kind: 'tool', name: 'Bash', detail: '', fromMs: 500, toMs: 2_500, waits: false }] }
+  const { store } = world(on, { 'session:abc': { ...held, metrics: { ...held.metrics, lastTurn } } })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: 'Last turn 3s · 0 requests · 1 call' })).toBeDefined()
+  await ui.unmount()
+
+  await $.turn.start({ text: 'hi', turnId: 't1' })
+  await $.turn.complete({ answer: '', durationMs: 2_000, isAborted: false, turnId: 't1', reason: 'answer' })
+  const mine = store.get('session:abc') as { metrics: { lastTurn?: { steps: unknown[] } } }
+  expect(mine.metrics.lastTurn?.steps).toEqual([])
+})
+
 test('a resumed session drops the background tasks its earlier process left open, so the header says Idle', async ($, on) => {
   const held = saved(5)
   world(on, { 'session:abc': { ...held, metrics: { ...held.metrics, tasks: { u1: { tool: 'Bash', label: 'npm', startedAt: 1 } } } } })

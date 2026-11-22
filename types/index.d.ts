@@ -31,6 +31,12 @@ export type TurnRecord = {
   reason: string
 }
 
+/** A finished main turn's steps in ms from its start, so the strip stays in place, still, between turns. */
+export type PastTurn = {
+  ms: number
+  steps: { kind: 'request' | 'tool' | 'compact'; name: string; detail: string; fromMs: number; toMs: number; waits: boolean }[]
+}
+
 /** One model's share: every turn it answered last, main or subagent; time counts main turns only. */
 export type ModelStat = {
   turns: number
@@ -132,6 +138,8 @@ export type Metrics = {
   idleMs: number
   /** When the last main turn ended; absent before the first. */
   lastEndedAt?: number
+  /** The last main turn's steps, so the strip shows it after a reload or a resume; absent when no watched turn ended. */
+  lastTurn?: PastTurn
   slowest: SlowCall[]
   /** Edits per file path by Edit, Write, MultiEdit, and NotebookEdit. */
   files: Record<string, number>

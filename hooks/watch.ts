@@ -1,5 +1,6 @@
 // What the running main turn does now, for the stall alert and the step strip. Module state: a reload starts it over, and the
-// next event fills it.
+// next event fills it. A finished turn's steps go to the metrics, so a reload or a resume keeps the idle strip.
+import type { PastTurn } from '../types'
 
 /** `waits` marks a call put to a decider: its time can be the person's, so it is no stall. */
 type OpenCall = { tool: string; startedAt: number; waits: boolean }
@@ -10,13 +11,9 @@ export type Step = { kind: 'request' | 'tool' | 'compact'; name: string; detail:
 // A long turn keeps its newest steps; older ones are too thin to draw.
 const MAX_STEPS = 300
 
-/** A finished turn's steps in ms from its start, kept so the strip stays in place, still, between turns. */
-export type PastTurn = { ms: number; steps: { kind: Step['kind']; name: string; detail: string; fromMs: number; toMs: number; waits: boolean }[] }
-
 const open = new Map<string, OpenCall>()
 let steps: Step[] = []
 let turnStartedAt: number | null = null
-let pastTurn: PastTurn | null = null
 const openSteps = new Map<string, Step>()
 let lastProgressAt: number | null = null
 let alerted = false
@@ -90,13 +87,10 @@ export const callEnded = (id: string, now: number): void => {
 /** The running turn's steps, oldest first, as copies the pane can keep. */
 export const stepLog = (): Step[] => steps.map(s => ({ ...s }))
 
-/** The last finished turn of this conversation, or null before one ends here. */
-export const lastTurn = (): PastTurn | null => pastTurn
-
-/** A turn ends at `endedAt` and is kept for the idle strip; with no time (a session that ends) nothing is kept. */
-export const watchStop = (endedAt?: number): void => {
+/** A turn ends at `endedAt` and gives its steps for the idle strip; with no time, or no watched start (a reload mid-turn), null. */
+export const watchStop = (endedAt?: number): PastTurn | null => {
   const t0 = turnStartedAt
-  pastTurn =
+  const past =
     endedAt === undefined || t0 === null
       ? null
       : {
@@ -116,6 +110,7 @@ export const watchStop = (endedAt?: number): void => {
   openSteps.clear()
   lastProgressAt = null
   moved = false
+  return past
 }
 
 /** The quiet span of the running turn and its oldest open call, or null between turns. */

@@ -382,11 +382,11 @@ test('a request that throws mid-stream ends its step, so the strip shows nothing
   await term.unmount()
 })
 
-// The header's state word is also Idle, in semibold; the strip's caption is the plain one.
-const stripIdle = async (pane: { findAll: (q: { type: string; text: string }) => Promise<{ props: Record<string, unknown> }[]> }) =>
-  (await pane.findAll({ type: 'Text', text: 'Idle' })).some(t => t.props.weight !== 'semibold')
+// The header alone says Idle; the strip says only that no turn ran yet.
+const stripIdle = async (pane: { find: (q: { type: string; text: string }) => Promise<unknown> }) =>
+  (await pane.find({ type: 'Text', text: 'No turn yet' })) !== undefined
 
-test('between turns the strip stays, still, with the last turn faded; before a turn and after /clear it says Idle', async ($, on) => {
+test('between turns the strip stays, still, with the last turn faded; before a turn and after /clear it says no turn ran', async ($, on) => {
   const { state } = engine(on)
   step(on)
   on('session.end', () => ({ sessionId: 'abc' }))
@@ -401,10 +401,11 @@ test('between turns the strip stays, still, with the last turn faded; before a t
   state.cost = 0.68
   await $.turn.complete({ answer: '', durationMs: 4_000, isAborted: false, turnId: 't1', reason: 'answer' })
   const term = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await term.find({ type: 'Text', text: 'Idle · last turn 4s · $0.1800 · 1 request · 0 calls' })).toBeDefined()
+  expect(await term.find({ type: 'Text', text: 'Last turn 4s · $0.1800 · 1 request · 0 calls' })).toBeDefined()
+  expect(await term.findAll({ type: 'Text', text: /^Idle ·/ })).toEqual([])
   await term.unmount()
   const desk = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  const strip = (await desk.findAll({ type: 'Svg' })).find(c => String(c.props.alt).startsWith('Idle'))
+  const strip = (await desk.findAll({ type: 'Svg' })).find(c => String(c.props.alt).startsWith('Last turn'))
   expect(String(strip?.props.source)).toContain('opacity="0.45"')
   expect(String(strip?.props.source)).not.toContain('class="sweep"')
   expect(String(strip?.props.source)).not.toContain('class="ring"')
@@ -414,6 +415,18 @@ test('between turns the strip stays, still, with the last turn faded; before a t
   const cleared = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await stripIdle(cleared)).toBe(true)
   await cleared.unmount()
+})
+
+test('a turn that ran no step, as /compact does, still shows as the last turn', async ($, on) => {
+  engine(on)
+  step(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.turn.start({ text: '/compact', turnId: 't1' })
+  await $.turn.complete({ answer: '', durationMs: 3_000, isAborted: false, turnId: 't1', reason: 'answer' })
+  const term = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await stripIdle(term)).toBe(false)
+  expect(await term.find({ type: 'Text', text: /^Last turn 3s/ })).toBeDefined()
+  await term.unmount()
 })
 
 test('the last turn names the three tools that took the most time, with their counts, and leaves out calls put to approval', () => {

@@ -17,7 +17,7 @@ import { statusText } from './status'
 import { costSince, record } from './tally'
 import { observeTools } from './tools'
 import { VERSION } from './version'
-import { lastTurn, quiet, shouldAlert, stepLog, watchStart, watchStop } from './watch'
+import { quiet, shouldAlert, stepLog, watchStart, watchStop } from './watch'
 
 // The state scan reads an atom only where its file declares it, so each file that reads or writes Metrics declares the same one.
 const metrics = atom({ plugin: 'pulse', key: 'metrics' } as const, EMPTY, { shape: SHAPE })
@@ -179,7 +179,7 @@ export const register: Register = (on, options) => {
     else resetLoops(e.agentId)
     const now = await quietly(() => $.clock.now())
     // The turn's steps stay on the strip, still, until the next turn starts.
-    if (isMain) watchStop(now)
+    const past = isMain ? watchStop(now) : null
     const s = isMain ? await quietly(() => $.session.usage()) : undefined
     // The summary breakdown is counted locally and sends no request; it is the one place the auto-compact point shows. It is a
     // call of its own, so a failed estimate costs the runway only, not the turn's figures.
@@ -197,6 +197,7 @@ export const register: Register = (on, options) => {
       usage: e.usage,
       now,
       session,
+      lastTurn: past ?? undefined,
     })
     // A subagent turn runs inside a main turn, whose end saves its figures too.
     if (isMain && m !== undefined && now !== undefined) {
@@ -273,7 +274,7 @@ export const register: Register = (on, options) => {
                   stallMs: prefs.stallMinutes * 60_000,
                 }
               : null,
-          lastTurn: lastTurn(),
+          lastTurn: m.lastTurn ?? null,
           cacheLeftMs: cacheLeftMs(m, usage, now),
           cacheTtlMs: cacheTtlMs(usage),
           compactAt,

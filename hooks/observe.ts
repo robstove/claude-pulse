@@ -18,6 +18,27 @@ let compactSeen = false
 const compacting = atom({ plugin: 'pulse', key: 'compactingSince' } as const, null as number | null)
 const markCompacting = ($: EngineInterface, since: number | null): Promise<unknown> => quietly(() => update($, compacting, () => since))
 
+// The waits before each read of the count after /compact; the sweep stays until a read sees the count fall or the last one ends.
+const SETTLE_MS = [0, 250, 1000]
+
+/** Reads the local count after /compact; a compaction that stands shrinks it, one that failed or found nothing to compact leaves it. */
+const settle = ($: EngineInterface, before: number | undefined, i: number): void => {
+  $.clock.after(SETTLE_MS[i] ?? 0, () =>
+    void quietly(async () => {
+      try {
+        const tokensAfter = (await $.session.usage({ breakdown: 'summary' })).context.breakdown?.totalTokens
+        if (tokensAfter !== undefined && (before === undefined || tokensAfter < before)) {
+          const at = await $.clock.now()
+          await record($, { kind: 'compaction', at, trigger: 'manual', isSkipped: false, tokensBefore: before, tokensAfter })
+        } else if (i + 1 < SETTLE_MS.length) return settle($, before, i + 1)
+      } catch {
+        // A failed read ends the watch; the sweep must not stay.
+      }
+      await markCompacting($, null)
+    }),
+  )
+}
+
 /** Hooks that only watch: subagent starts, compactions, prompts, and each model request. Each passes its event on unchanged. */
 export function observe(on: On): void {
   on('agent.spawn', async ($, e, next) => {
@@ -76,17 +97,13 @@ export function observe(on: On): void {
     let r: Awaited<ReturnType<typeof next>>
     try {
       r = await next(e)
-    } finally {
+    } catch (err) {
       await markCompacting($, null)
+      throw err
     }
-    if (compactSeen) return r
-    const after = await quietly(() => $.session.usage({ breakdown: 'summary' }))
-    const at = await quietly(() => $.clock.now())
-    // A compaction that stands shrinks the local count; one that failed or found nothing to compact leaves it.
-    const tokensAfter = after?.context.breakdown?.totalTokens
-    if (at !== undefined && tokensAfter !== undefined && (before === undefined || tokensAfter < before)) {
-      await record($, { kind: 'compaction', at, trigger: 'manual', isSkipped: false, tokensBefore: before, tokensAfter })
-    }
+    if (compactSeen) await markCompacting($, null)
+    // The engine swaps in the compacted conversation only after this hook returns (live 2.1.326), so a timer reads the count.
+    else if ((await quietly(async () => settle($, before, 0))) === undefined) await markCompacting($, null)
     return r
   })
 

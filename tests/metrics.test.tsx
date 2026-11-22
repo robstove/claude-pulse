@@ -62,6 +62,9 @@ test('subagents, compactions, prompts, requests, slow calls, and files show in t
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await $.prompt.submit({ text: 'hi', wait: false, origin: { kind: 'composer' } })
   await $.prompt.submit({ text: '/compact', command: { name: 'compact', args: '' }, wait: false, origin: { kind: 'composer' } })
+  const long = 'mattpocock-skills:improve-codebase-architecture'
+  await $.prompt.submit({ text: `/${long}`, command: { name: long, args: '' }, wait: false, origin: { kind: 'composer' } })
+  await $.prompt.submit({ text: '/design', command: { name: 'design', args: '' }, wait: false, origin: { kind: 'composer' } })
   await $.turn.start({ text: 'hi', turnId: 't1' })
   for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-5-5', messageCount: 1 })) {
     // Read the stream to its end.
@@ -88,7 +91,8 @@ test('subagents, compactions, prompts, requests, slow calls, and files show in t
     expect(await ui.find({ type: 'Text', text: 'Explore' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^1 start · 1 type/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /1 compacted/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /^2 prompts · 1 command: \/compact/ })).toBeDefined()
+    // Two commands by name, without a plugin's namespace and cut to fit; the rest as a count.
+    expect(await ui.find({ type: 'Text', text: '4 prompts · 3 commands: /compact, /improve-codebase-ar… +1' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^1\.0 requests a turn · first token 400ms · 250 tok\/s · web_search 1×/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'src/a.ts' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'Slowest calls' })).toBeDefined()
