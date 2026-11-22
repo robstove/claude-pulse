@@ -6,6 +6,24 @@ import { engine } from './live'
 
 // The pane header: the state word and the dot.
 
+test('the cost per hour divides the session cost by the working time, and shows from one minute of work', async ($, on) => {
+  const { state } = engine(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const caption = async () => {
+    const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    const text = (await pane.find({ type: 'Text', text: /^Session cost/ }))?.text
+    await pane.unmount()
+    return text
+  }
+  // The engine's session is ten minutes old, but no turn has worked yet.
+  expect(await caption()).toBe('Session cost')
+  await $.turn.start({ text: 'hi', turnId: 't1' })
+  state.now += 30 * 60_000
+  state.cost = 1.5
+  await $.turn.complete({ answer: '', durationMs: 30 * 60_000, isAborted: false, turnId: 't1', reason: 'answer' })
+  expect(await caption()).toBe('Session cost · $3.00/h worked')
+})
+
 test('the pane header dot breathes and rings green while a turn runs, is amber and still when it stalls, and grey between turns', async ($, on) => {
   const { state } = engine(on)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
@@ -32,6 +50,12 @@ test('the pane header dot breathes and rings green while a turn runs, is amber a
   expect(busy.source).toContain(`animation-delay:-${12_000 % PULSE_MS}ms`)
   expect(busy.source).toContain('prefers-reduced-motion: reduce){.dot{animation:none}')
   expect(busy.color).toBe('success')
+  // The big number is Claude's working time, which holds the running turn, not the session's wall-clock age.
+  const work = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await work.find({ type: 'Text', text: 'Working' })).toBeDefined()
+  expect(await work.find({ type: 'Text', text: '12s' })).toBeDefined()
+  expect(await work.find({ type: 'Text', text: /^10m/ })).toBeUndefined()
+  await work.unmount()
   const term = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect((await term.find({ type: 'Text', text: '●' }))?.props.color).toBe('success')
   expect(await term.find({ type: 'Text', text: 'running 12s' })).toBeDefined()

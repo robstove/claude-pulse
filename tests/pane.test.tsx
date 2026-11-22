@@ -194,7 +194,7 @@ test('a resumed session drops the background tasks its earlier process left open
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: 'Live' })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /in background/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: 'Elapsed' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Working' })).toBeDefined()
   await ui.unmount()
 })
 

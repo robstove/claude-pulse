@@ -131,7 +131,7 @@ test('a background task is timed to its notification, which is no prompt of the 
   expect(await done.find({ type: 'Text', text: /^1 prompt/ })).toBeDefined()
   expect(await done.find({ type: 'Text', text: /secret/ })).toBeUndefined()
   expect(await done.find({ type: 'Text', text: 'Live' })).toBeUndefined()
-  expect(await done.find({ type: 'Text', text: 'Elapsed' })).toBeDefined()
+  expect(await done.find({ type: 'Text', text: 'Working' })).toBeDefined()
   await done.unmount()
 })
 

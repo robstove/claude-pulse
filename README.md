@@ -4,10 +4,10 @@
 
 Live session metrics for Claude Code. Pulse tracks each session with hooks and shows the figures in a pane beside the chat and on the hint line under the prompt.
 
-- **Cost and elapsed time** for the session, as the status line counts them, with the cost per hour.
+- **Cost and working time** for the session: the cost as the status line counts it, Claude's working time (the main turns, as Activity counts it, and the turn that runs), and the cost per hour worked.
 - **Limits**: the 5-hour and 7-day rate-limit windows on a subscription, when each resets, the pace this session uses them at, a tick at each day or hour start with a marker at now to show whether you are over or under an even spread, and a red warning when that pace fills a window before it resets. Under the 7-day bar, a column shows what each day of the window cost.
 - **Context** fill as a gauge that turns amber at 60% and red at 80%, a line of the fill after each turn, a mark at each compaction, and the turns left before auto-compaction at the current rate.
-- **Turns**: time and cost per turn on one chart. While a turn runs, a strip above it shows the turn's model requests and tool calls as they happen; the current step is green and moves, and turns amber and still when the turn stays quiet past a limit. The top of the pane shows the same state: a dot that breathes and rings in green while a turn or a background task runs, and the word Live, Stalled, or Idle beside the elapsed time. Between turns the strip stays, faded, and names the last turn's time and cost, and a line under it names the three tools that took the most time in that turn. A toast tells you when a turn stays quiet past the limit, and when one tool fails 3 times in a row. Under it: model requests per turn, time to the first token, output tokens per second, effort, server tools, cut replies, and interrupted or failed turns.
+- **Turns**: time and cost per turn on one chart. While a turn runs, a strip above it shows the turn's model requests and tool calls as they happen; the current step is green and moves, and turns amber and still when the turn stays quiet past a limit. The top of the pane shows the same state: a dot that breathes and rings in green while a turn or a background task runs, and the word Live, Stalled, or Idle, with the running time or the background task count. Between turns the strip stays, faded, and names the last turn's time and cost, and a line under it names the three tools that took the most time in that turn. A toast tells you when a turn stays quiet past the limit, and when one tool fails 3 times in a row. Under it: model requests per turn, time to the first token, output tokens per second, effort, server tools, cut replies, and interrupted or failed turns.
 - **Activity**: Claude's working time and your time between turns, with your prompt and slash-command counts.
 - **Tokens**: cache read, cache write, input, and output as one stacked bar. Between turns, a countdown shows how long the prompt cache stays warm, and a toast warns before it expires.
 - **Tools**: total time per tool, with failed calls in red, the p50 and p95 time on hover, and the three slowest calls.
@@ -77,7 +77,7 @@ Pulse makes no network calls and reads no files. CI fails any change that adds s
 
 ## How Pulse counts
 
-**Scope.** Counts start when the plugin first loads in a session. Cost, elapsed time, context, and rate limits come from Claude Code and cover the whole session.
+**Scope.** Counts start when the plugin first loads in a session. Cost, context, and rate limits come from Claude Code and cover the whole session. The header's cost per hour worked divides that whole-session cost by Pulse's working time, so it reads high when Pulse loaded into a session that already ran, or when background agents spent outside the main turns.
 
 **Cost.** The cost is Claude Code's own ledger, the same total that `/cost` and the status line show. Claude Code prices each API response in the session, subagents and compaction included, at the model's list price, or at your organization's managed pricing when one is set. On a subscription it is an estimate at API rates, not a bill. Pulse gets the cost of a turn from the change in that total across the turn.
 

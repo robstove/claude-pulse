@@ -72,7 +72,7 @@ const checkStall = ($: EngineInterface): void =>
     if (shouldAlert(now, prefs.stallMinutes * 60_000)) $.ui.toast(stallText(now), { timeoutMs: 10_000 })
   })
 
-// The ticks keep the elapsed time, cost, and running bar current while the model streams; a state write redraws on its own.
+// The ticks keep the working time, cost, and running bar current while the model streams; a state write redraws on its own.
 // After the fast window one slower timer takes over, so no period passes without a redraw.
 const startTicker = ($: EngineInterface): void => {
   let ticks = 0
@@ -254,7 +254,6 @@ export const register: Register = (on, options) => {
           usage,
           now,
           daily: await read($, costs),
-          elapsedMs: now - usage.startedAt,
           live:
             startedAt !== null
               ? {

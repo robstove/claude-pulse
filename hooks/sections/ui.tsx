@@ -33,7 +33,6 @@ export type PaneData = {
   now: number
   /** Cost per local day across sessions, from the store. */
   daily: Readonly<Record<string, number>>
-  elapsedMs: number
   /** The pane body's width in cells of the surface's code font. */
   columns: number
   rows: number

@@ -28,10 +28,12 @@ const dotSvg = (state: State, ms: number): string => {
   )
 }
 
-/** The session's cost, its cost per hour, the elapsed time, and a dot and a word that tell whether work runs. */
-export const header: Section = ({ Box, Text, Svg }, { m, usage, now, elapsedMs, live }) => {
-  // Cost per hour of wall time; under a minute the rate swings too far to read.
-  const perHour = usage.cost && elapsedMs >= 60_000 ? usage.cost.usd / (elapsedMs / 3_600_000) : null
+/** The session's cost, its cost per hour of work, Claude's working time, and a dot and a word that tell whether work runs. */
+export const header: Section = ({ Box, Text, Svg }, { m, usage, now, live }) => {
+  // Working time, as Activity counts it, plus the running turn: a session left open for days spends its idle time on nothing.
+  const workMs = m.turnMsTotal + (live?.ms ?? 0)
+  // Under a minute of work the rate swings too far to read.
+  const perHour = usage.cost && workMs >= 60_000 ? usage.cost.usd / (workMs / 3_600_000) : null
   const status = live === null ? null : liveStatus(live)
   // A background task works on after its turn ends, so between turns the session is still live while one runs.
   const tasks = Object.values(m.tasks)
@@ -69,16 +71,16 @@ export const header: Section = ({ Box, Text, Svg }, { m, usage, now, elapsedMs, 
             {usage.cost ? fmtUsd(usage.cost.usd) : 'n/a'}
           </Text>
           <Text size="caption" dimColor tabular>
-            Session cost{perHour !== null ? ` · ${fmtUsd(perHour)}/h` : ''}
+            Session cost{perHour !== null ? ` · ${fmtUsd(perHour)}/h worked` : ''}
           </Text>
         </Box>
-        {/* The label sits under the number, so the session's age never reads as the turn's time. */}
+        {/* The label sits under the number, so the session's work never reads as the turn's time. */}
         <Box flexDirection="column" alignItems="flex-end">
           <Text size="heading" tabular>
-            {fmtMs(elapsedMs)}
+            {fmtMs(workMs)}
           </Text>
           <Text size="caption" dimColor>
-            Elapsed
+            Working
           </Text>
         </Box>
       </Box>
