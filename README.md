@@ -16,8 +16,6 @@ Live session metrics for Claude Code. Pulse tracks each session with hooks and s
 - **Subagents**: starts, time, tokens, and model for each subagent type.
 - **History**: cost per day for the last 14 days across all sessions, with today and 7-day totals. With a daily budget set, it shows today's share of the budget. From 80%, a band above the prompt shows today's spend and the budget, amber and then red at 100%, and the hint line under the prompt shows them too. Hide removes the band for the rest of the day, in other open sessions after their next turn, until the spend reaches 100% or the budget changes. VS Code draws neither the band nor the hint line, so there the History caption alone shows the share.
 
-On desktop, VS Code, and mobile the charts are SVG images, with no hover tooltips, because an interactive frame flickers when the pane redraws each second. The terminal gets block-character bars and sparklines.
-
 ## Requirements
 
 Pulse is a Claude Code plugin with a hooks module. That plugin API is in early access, and a Claude Code release can change it. CI tests Pulse on the Claude Code release in [`.claude-code-version`](.claude-code-version). If a later release changes the API, the pane can stay empty; update Pulse, or report the release in an issue.
