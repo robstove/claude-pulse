@@ -26,6 +26,9 @@ export const loopReached = (agentId: string | undefined, tool: string, failed: b
   return n === LOOP_FAILS
 }
 
+// The toast API has no warning style, so a toast that asks the person to act starts with a warning sign.
+export const ALERT = '\u26a0 Pulse:'
+
 /** The toast for a loop, with the call's label so the person sees what fails. */
 export const loopText = (tool: string, detail: string, inAgent: boolean): string =>
-  `Pulse: ${tool}${detail !== '' ? ` (${detail})` : ''} failed ${LOOP_FAILS} times in a row${inAgent ? ' in a subagent' : ''}.`
+  `${ALERT} ${tool}${detail !== '' ? ` (${detail})` : ''} failed ${LOOP_FAILS} times in a row${inAgent ? ' in a subagent' : ''}.`

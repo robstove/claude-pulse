@@ -136,7 +136,7 @@ test('a running turn shows its quiet time, amber past the stall limit, and a toa
   const found = await pane.find({ type: 'Text', text: 'Working · quiet 4m 0s · 0 requests · 0 calls' })
   expect(found?.props.color).toBe('warning')
   await pane.unmount()
-  expect(toasts).toEqual(['Pulse: no model output or tool call for 4m 0s.'])
+  expect(toasts).toEqual(['\u26a0 Pulse: no model output or tool call for 4m 0s.'])
 })
 
 test('the stall watch alerts once per quiet stretch and names a call that runs long', async () => {
@@ -434,7 +434,7 @@ test('a tool that fails 3 times in a row gives one toast; a success or a new tur
   await call('Bash', 3)
   expect(toasts).toEqual([])
   await call('Bash', 4)
-  expect(toasts).toEqual(['Pulse: Bash (npm) failed 3 times in a row.'])
+  expect(toasts).toEqual(['\u26a0 Pulse: Bash (npm) failed 3 times in a row.'])
   await call('Bash', 5)
   expect(toasts.length).toBe(1)
 
@@ -471,7 +471,7 @@ test('a subagent counts its failures apart and says so; a refused call starts th
   await bash(5, undefined, 'rm -rf /')
   await bash(6)
   await bash(7, 'a1')
-  expect(toasts).toEqual(['Pulse: Bash (npm) failed 3 times in a row in a subagent.'])
+  expect(toasts).toEqual(['\u26a0 Pulse: Bash (npm) failed 3 times in a row in a subagent.'])
   await bash(8)
   expect(toasts.length).toBe(1)
 

@@ -4,7 +4,7 @@ import type { EngineInterface, Register, Timer } from 'claude-code'
 import { cacheLeftMs, cacheTtlMs, resetRequest, warnLeadMs } from './cache'
 import { fmtMs, fmtNum } from './charts'
 import { refreshCosts } from './ledger'
-import { resetLoops } from './loop'
+import { ALERT, resetLoops } from './loop'
 import { observe } from './observe'
 import { drawPane } from './pane'
 import { quietly } from './quietly'
@@ -58,8 +58,8 @@ const stallText = (now: number): string => {
   const q = quiet(now)
   const call = q?.call
   return call !== undefined && q !== null && call.ms >= q.ms
-    ? `Pulse: ${call.tool} has run for ${fmtMs(call.ms)}.`
-    : `Pulse: no model output or tool call for ${fmtMs(q?.ms ?? 0)}.`
+    ? `${ALERT} ${call.tool} has run for ${fmtMs(call.ms)}.`
+    : `${ALERT} no model output or tool call for ${fmtMs(q?.ms ?? 0)}.`
 }
 
 // Each tick of a running turn checks whether it went quiet past the stallMinutes option, and says so once.
