@@ -1,6 +1,6 @@
 {
   "name": "pulse",
-  "version": "0.7.8",
+  "version": "0.7.9",
   "description": "Live session metrics for Claude Code: cost, rate limits, context, turns, tokens, tools, subagents, files, and daily history in a pane and the prompt hint",
   "types": "./types/index.d.ts",
   "userConfig": {
