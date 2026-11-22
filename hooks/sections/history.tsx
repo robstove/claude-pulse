@@ -1,5 +1,7 @@
 import { HEX, esc, fmtUsd, sparkline, svg } from '../charts'
+import { budgetLevel, budgetPercent } from '../budget'
 import { lastDays } from '../ledger'
+import { prefs } from '../state'
 import type { Section } from './ui'
 
 /** Cost per day, oldest first; today's bar in the accent color. */
@@ -27,8 +29,11 @@ export const history: Section = (ui, { daily, now }) => {
   const total = (n: number) => days.slice(-n).reduce((s, [, usd]) => s + usd, 0)
   if (total(14) === 0) return null
   const today = days[days.length - 1]?.[0] ?? ''
-  return ui.section('History', `today ${fmtUsd(total(1))} · 7 days ${fmtUsd(total(7))}`, [
+  const budget = prefs.dailyBudgetUsd
+  const level = budgetLevel(total(1), budget)
+  return ui.section('History', `today ${fmtUsd(total(1))}${budget > 0 ? ` of ${fmtUsd(budget)}` : ''} · 7 days ${fmtUsd(total(7))}`, [
     ui.Svg ? ui.chart(historySvg(ui.px, days, today), 'Cost per day, last 14 days') : <ui.Text color="suggestion">{sparkline(days.map(([, usd]) => usd))}</ui.Text>,
+    level > 0 && ui.caption(`Today is at ${budgetPercent(total(1), budget)}% of the daily budget.`, level >= 1 ? 'error' : 'warning'),
     ui.caption('All sessions, by the day each turn ended. Last 14 days.'),
   ])
 }

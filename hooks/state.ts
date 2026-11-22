@@ -64,8 +64,9 @@ export const setLevels = (options: Readonly<Record<string, unknown>> | undefined
   Object.assign(levels, warnAt < alertAt ? { warnAt, alertAt } : { warnAt: 60, alertAt: 80 })
 }
 
-/** The options past the meter levels: the cache TTL (0 = guess), when a quiet turn alerts (0 = never), and the sections to draw. */
-export const prefs = { cacheMinutes: 0, stallMinutes: 3, sections: [] as string[] }
+/** The options past the meter levels: the cache TTL (0 = guess), when a quiet turn alerts (0 = never), the sections to draw,
+ * and the daily spend in dollars at which a toast warns (0 = never). */
+export const prefs = { cacheMinutes: 0, stallMinutes: 3, sections: [] as string[], dailyBudgetUsd: 0 }
 
 const minutesOption = (v: unknown, fallback: number): number => (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1_440 ? v : fallback)
 
@@ -75,6 +76,7 @@ export const setPrefs = (options: Readonly<Record<string, unknown>> | undefined)
     cacheMinutes: minutesOption(options?.cacheMinutes, 0),
     stallMinutes: minutesOption(options?.stallMinutes, 3),
     sections: sections.split(/[\s,]+/).map(n => n.trim().toLowerCase()).filter(n => n !== ''),
+    dailyBudgetUsd: typeof options?.dailyBudgetUsd === 'number' && Number.isFinite(options.dailyBudgetUsd) && options.dailyBudgetUsd > 0 ? options.dailyBudgetUsd : 0,
   })
 }
 

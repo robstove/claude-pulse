@@ -28,6 +28,12 @@
       "default": 3,
       "description": "Minutes with no model output or tool call before a running turn shows a toast. 0 turns the alert off."
     },
+    "dailyBudgetUsd": {
+      "type": "number",
+      "title": "Daily budget",
+      "default": 0,
+      "description": "Today's spend in dollars, across all sessions, at which a toast warns: once at 80% and once at 100%. 0 turns the alert off."
+    },
     "sections": {
       "type": "string",
       "title": "Sections",

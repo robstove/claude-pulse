@@ -1,6 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
+import { checkBudget } from './budget'
 import { cacheLeftMs, cacheTtlMs, resetRequest, warnLeadMs } from './cache'
 import { fmtMs, fmtNum } from './charts'
 import { refreshCosts } from './ledger'
@@ -192,7 +193,11 @@ export const register: Register = (on, options) => {
       session,
     })
     // A subagent turn runs inside a main turn, whose end saves its figures too.
-    if (isMain && m !== undefined && now !== undefined) await persist($, m, now, m.turns.at(-1)?.costUsd ?? null)
+    if (isMain && m !== undefined && now !== undefined) {
+      await persist($, m, now, m.turns.at(-1)?.costUsd ?? null)
+      // persist read the day's totals again, with other sessions' spend, so the budget check sees the whole day.
+      await quietly(() => checkBudget($, now))
+    }
     if (isMain && s !== undefined && now !== undefined && m !== undefined) {
       const left = cacheLeftMs(m, s, now)
       if (left !== null) await quietly(async () => startIdle($, left, cacheTtlMs(s), s.context.tokens))

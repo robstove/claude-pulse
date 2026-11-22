@@ -171,6 +171,27 @@ const liveStrip = (ui: Ui, live: LiveTurn | null, last: { ms: number; steps: Liv
   return ui.caption(`${now} · ${counts}`, stalled ? 'warning' : undefined)
 }
 
+// The last turn's tool time names this many tools.
+const TOP_TOOLS = 3
+
+/** Between turns, the tools that took the most time in the last turn, with their call counts; calls put to approval are left
+ * out, because their time may be the person's. Parallel calls each count their own time. */
+export const toolTimeText = (steps: readonly LiveStep[]): string | null => {
+  const by = new Map<string, { ms: number; n: number }>()
+  for (const s of steps) {
+    if (s.kind !== 'tool' || s.waits || s.toMs === null) continue
+    const t = by.get(s.name) ?? { ms: 0, n: 0 }
+    by.set(s.name, { ms: t.ms + (s.toMs - s.fromMs), n: t.n + 1 })
+  }
+  const top = [...by.entries()].sort((a, b) => b[1].ms - a[1].ms).slice(0, TOP_TOOLS)
+  return top.length === 0 ? null : `Tool time: ${top.map(([name, t]) => `${name} ${fmtMs(t.ms)}${t.n > 1 ? ` (${t.n})` : ''}`).join(' · ')}`
+}
+
+const toolTimeLine = (ui: Ui, live: LiveTurn | null, last: { steps: LiveStep[] } | null) => {
+  const text = live === null && last !== null ? toolTimeText(last.steps) : null
+  return text === null ? null : ui.caption(text)
+}
+
 /** Main turns that did not end with an answer, in red; nothing when every turn answered. */
 const endsLine = (ui: Ui, m: Metrics) => {
   const r = m.endReasons
@@ -194,6 +215,7 @@ export const turns: Section = (ui, { m, live, lastTurn }) => {
       : `${plural(m.mainTurns, 'turn')}${m.agentTurns > 0 ? ` + ${m.agentTurns} subagent` : ''} · avg ${fmtMs(avgMs)} · max ${fmtMs(m.longestTurnMs)}`,
     [
       liveStrip(ui, live, lastTurn, m),
+      toolTimeLine(ui, live, lastTurn),
       ui.Svg ? (
         ui.chart(turnsSvg(ui.px, m.turns, firstTurn, live), `Turn time and cost, last ${fmtMs(m.lastTurnMs)}`)
       ) : (

@@ -11,7 +11,7 @@ export type Step = { kind: 'request' | 'tool' | 'compact'; name: string; detail:
 const MAX_STEPS = 300
 
 /** A finished turn's steps in ms from its start, kept so the strip stays in place, still, between turns. */
-export type PastTurn = { ms: number; steps: { kind: Step['kind']; name: string; detail: string; fromMs: number; toMs: number; waits: false }[] }
+export type PastTurn = { ms: number; steps: { kind: Step['kind']; name: string; detail: string; fromMs: number; toMs: number; waits: boolean }[] }
 
 const open = new Map<string, OpenCall>()
 let steps: Step[] = []
@@ -107,7 +107,7 @@ export const watchStop = (endedAt?: number): void => {
             detail: s.detail,
             fromMs: Math.max(0, s.startedAt - t0),
             toMs: Math.max(0, (s.endedAt ?? endedAt) - t0),
-            waits: false as const,
+            waits: s.waits,
           })),
         }
   turnStartedAt = null

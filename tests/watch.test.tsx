@@ -2,7 +2,8 @@ import { expect, test } from 'claude-code/testing'
 
 import { callEnded, callStarted, callWaits, progress, quiet, shouldAlert, touch, watchStart } from '../hooks/watch'
 import { fmtMs } from '../hooks/charts'
-import { liveStatus, stripSvg } from '../hooks/sections/turns'
+import { dayKey } from '../hooks/ledger'
+import { liveStatus, stripSvg, toolTimeText } from '../hooks/sections/turns'
 import type { LiveTurn } from '../hooks/sections/ui'
 import { HINT, PANE, memoryStore } from './kit'
 import type { Dollar, On } from './kit'
@@ -14,7 +15,7 @@ const engine = (on: On) => {
   const state = { now: Date.UTC(2026, 10, 13, 12), tokens: 50_000, percent: 25, limits: [] as Limit[], compactAt: 160_000 as number | undefined, cost: 0.5 }
   const afters: number[] = []
   const toasts: string[] = []
-  memoryStore(on)
+  const store = memoryStore(on)
   on('command.register', () => ({ value: { command: 'pulse' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('clock.every', () => ({ value: undefined }))
@@ -45,7 +46,7 @@ const engine = (on: On) => {
   }))
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
-  return { state, afters, toasts }
+  return { state, afters, toasts, store }
 }
 
 const turn = async ($: Dollar, id: string) => {
@@ -479,4 +480,116 @@ test('a subagent counts its failures apart and says so; a refused call starts th
   await $.turn.start({ text: 'again', turnId: 't2' })
   await Promise.all([bash(9), bash(10), bash(11)])
   expect(toasts.length).toBe(1)
+})
+
+test('the last turn names the three tools that took the most time, with their counts, and leaves out calls put to approval', () => {
+  const tool = (name: string, fromMs: number, toMs: number, waits = false) => ({ kind: 'tool' as const, name, detail: '', fromMs, toMs, waits })
+  const steps = [
+    { kind: 'request' as const, name: 'model', detail: '', fromMs: 0, toMs: 90_000, waits: false },
+    tool('Bash', 0, 20_000),
+    tool('Bash', 20_000, 42_000),
+    tool('Read', 0, 2_000),
+    tool('Grep', 0, 1_000),
+    tool('Glob', 0, 500),
+    tool('Edit', 0, 600_000, true),
+  ]
+  expect(toolTimeText(steps)).toBe('Tool time: Bash 42s (2) · Read 2s · Grep 1s')
+  expect(toolTimeText(steps.slice(0, 1))).toBeNull()
+})
+
+test('between turns the pane names the tool time of the last turn, without the call that waited on the person', async ($, on) => {
+  const { state } = engine(on)
+  on('tool.check', (_, e) => ({ decision: e.tool_use_id === 'p1' ? 'ask' : 'allow' }))
+  on('classic.PermissionRequest', () => {
+    state.now += 5 * 60_000
+    return { decision: { behavior: 'allow' } }
+  })
+  on('tool.call', () => {
+    state.now += 2_000
+    return { result: {} } as never
+  })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.turn.start({ text: 'hi', turnId: 't1' })
+  await $.tool.call({ tool: 'Edit', file_path: '/a.ts', old_string: 'a', new_string: 'b', tool_use_id: 'p1' } as never)
+  await $.tool.call({ tool: 'Bash', command: 'npm test', tool_use_id: 'b1' } as never)
+  await $.turn.complete({ answer: '', durationMs: 1_000, isAborted: false, turnId: 't1', reason: 'answer' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await pane.find({ type: 'Text', text: 'Tool time: Bash 2s' })).toBeDefined()
+  await pane.unmount()
+})
+
+test("the budget mark of another session holds back a toast only for the same day and the same budget", { options: { dailyBudgetUsd: 1 } }, async ($, on) => {
+  const { state, toasts, store } = engine(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const passWith = async (mark: { day: string; level: number; budget: number }, id: string) => {
+    store.set('budget', mark)
+    await $.turn.start({ text: 'hi', turnId: id })
+    state.cost += 2
+    await $.turn.complete({ answer: '', durationMs: 1_000, isAborted: false, turnId: id, reason: 'answer' })
+  }
+  // The ledger keys the local day, so the test reads it the same way; an earlier day's mark is a day that has passed.
+  const today = dayKey(state.now)
+  await passWith({ day: today, level: 1, budget: 1 }, 't1')
+  expect(toasts).toEqual([])
+  await passWith({ day: today, level: 1, budget: 2 }, 't2')
+  expect(toasts.length).toBe(1)
+  await passWith({ day: '2000-01-01', level: 1, budget: 1 }, 't3')
+  expect(toasts.length).toBe(2)
+})
+
+test('a spend that jumps past the budget in one turn gives one toast, and the History caption turns red', { options: { dailyBudgetUsd: 1 } }, async ($, on) => {
+  const { state, toasts } = engine(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.turn.start({ text: 'hi', turnId: 't1' })
+  state.cost = 2
+  await $.turn.complete({ answer: '', durationMs: 1_000, isAborted: false, turnId: 't1', reason: 'answer' })
+  expect(toasts).toEqual(["\u26a0 Pulse: today's spend of $1.50 has passed the $1.00 daily budget."])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await pane.find({ type: 'Text', text: 'Today is at 150% of the daily budget.' }))?.props.color).toBe('error')
+  await pane.unmount()
+})
+
+test('a daily budget toasts once at 80% and once at 100%, and the History meta shows the share', { options: { dailyBudgetUsd: 1 } }, async ($, on) => {
+  const { state, toasts } = engine(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const spend = async (id: string, cost: number) => {
+    await $.turn.start({ text: 'hi', turnId: id })
+    state.cost = cost
+    await $.turn.complete({ answer: '', durationMs: 1_000, isAborted: false, turnId: id, reason: 'answer' })
+  }
+  await spend('t1', 1.0)
+  expect(toasts).toEqual([])
+  await spend('t2', 1.3)
+  expect(toasts).toEqual(["\u26a0 Pulse: today's spend of $0.8000 is 80% of the $1.00 daily budget."])
+  await spend('t3', 1.4)
+  expect(toasts.length).toBe(1)
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await pane.find({ type: 'Text', text: /^today \$0\.9000 of \$1\.00 · 7 days/ })).toBeDefined()
+  expect((await pane.find({ type: 'Text', text: 'Today is at 90% of the daily budget.' }))?.props.color).toBe('warning')
+  await pane.unmount()
+  await spend('t4', 1.6)
+  expect(toasts[1]).toBe("\u26a0 Pulse: today's spend of $1.10 has passed the $1.00 daily budget.")
+  await spend('t5', 1.7)
+  expect(toasts.length).toBe(2)
+})
+
+test("a subagent's end starts its count again, and the main loop's count goes on", async ($, on) => {
+  const { state, toasts } = engine(on)
+  on('tool.check', () => ({ decision: 'allow' }))
+  on('tool.call', () => {
+    state.now += 1_000
+    return { result: {}, isError: true, text: 'exit 1' } as never
+  })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.turn.start({ text: 'hi', turnId: 't1' })
+  const bash = (n: number, agentId?: string) => $.tool.call({ tool: 'Bash', command: 'npm test', tool_use_id: `b${n}`, agentId } as never)
+  await bash(1, 'a1')
+  await bash(2, 'a1')
+  await bash(3)
+  await bash(4)
+  await $.turn.complete({ answer: '', durationMs: 1_000, isAborted: false, turnId: 'a1-turn', reason: 'answer', agentId: 'a1' } as never)
+  await bash(5, 'a1')
+  expect(toasts).toEqual([])
+  await bash(6)
+  expect(toasts).toEqual(['\u26a0 Pulse: Bash (npm) failed 3 times in a row.'])
 })
