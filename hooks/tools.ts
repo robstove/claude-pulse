@@ -5,7 +5,7 @@ import { callLabel } from './label'
 import { loopReached, loopText } from './loop'
 import { callFailed, record } from './tally'
 import type { ToolObservation } from './tally'
-import { callEnded, callStarted, callWaits } from './watch'
+import { callEnded, callStarted, callWaits, keepWatch } from './watch'
 
 type On = Parameters<Register>[0]
 
@@ -30,6 +30,7 @@ export function observeTools(on: On): void {
       mark(asked, e.tool_use_id)
       // The engine runs tool.check inside tool.call's next, so the call is open in the stall watch by now.
       callWaits(e.tool_use_id)
+      await keepWatch($)
     }
     if (e.tool_use_id !== undefined && verdict.decision === 'deny') mark(denied, e.tool_use_id)
     return verdict
@@ -43,7 +44,10 @@ export function observeTools(on: On): void {
     // The stall watch holds the main loop's calls; tool.check, which the engine runs inside next, marks one put to a decider.
     const watched = id !== undefined && startedAt !== undefined && e.agentId === undefined
     const label = callLabel(e as unknown as Readonly<Record<string, unknown>>)
-    if (watched) callStarted(id, e.tool, startedAt, label)
+    if (watched) {
+      callStarted(id, e.tool, startedAt, label)
+      await keepWatch($)
+    }
     let ran: Awaited<ReturnType<typeof next>>
     let endedAt: number | undefined
     // The call ends in `finally`, so one that throws never stays open on the strip or holds the stall watch off.
@@ -51,7 +55,10 @@ export function observeTools(on: On): void {
       ran = await next(e)
     } finally {
       endedAt = startedAt === undefined ? undefined : await quietly(() => $.clock.now())
-      if (watched) callEnded(id, endedAt ?? startedAt)
+      if (watched) {
+        callEnded(id, endedAt ?? startedAt)
+        await keepWatch($)
+      }
     }
     const wasAsked = id !== undefined && asked.delete(id)
     const wasDenied = id !== undefined && denied.delete(id)

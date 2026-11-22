@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { callEnded, callStarted, callWaits, progress, quiet, shouldAlert, touch, watchStart } from '../hooks/watch'
+import { callEnded, callStarted, callWaits, progress, quiet, shouldAlert, touch, watchStart, watchStop } from '../hooks/watch'
 import { fmtMs } from '../hooks/charts'
 import { liveStatus, stripSvg, toolTimeText } from '../hooks/sections/turns'
 import type { LiveTurn } from '../hooks/sections/ui'
@@ -415,6 +415,23 @@ test('between turns the strip stays, still, with the last turn faded; before a t
   const cleared = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await stripIdle(cleared)).toBe(true)
   await cleared.unmount()
+})
+
+test('a plugin reload in the middle of a turn keeps its steps, so the strip draws them when the turn ends', async ($, on) => {
+  const { state } = engine(on)
+  step(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.turn.start({ text: 'hi', turnId: 't1' })
+  await runStep($, 't1')
+  // A reload starts the module over and keeps $.state; watchStop with no time empties the module and copies nothing.
+  watchStop()
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await runStep($, 't1')
+  state.now += 4_000
+  await $.turn.complete({ answer: '', durationMs: 4_000, isAborted: false, turnId: 't1', reason: 'answer' })
+  const term = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await term.find({ type: 'Text', text: /^Last turn 4s · .* · 2 requests · 0 calls$/ })).toBeDefined()
+  await term.unmount()
 })
 
 test('a turn that ran no step, as /compact does, still shows as the last turn', async ($, on) => {

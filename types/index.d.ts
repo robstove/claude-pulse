@@ -99,6 +99,18 @@ export type RateStart = { at: number; pct: number; resetsAt?: string }
 /** The main turn that runs now; `startedAt` is null between turns, or when the clock failed at its start. */
 export type Running = { startedAt: number | null; toolCalls: number; steps: number }
 
+/** One stretch of the running main turn; `detail` is a name-only label, and `endedAt` is null while it runs. */
+export type Step = { kind: 'request' | 'tool' | 'compact'; name: string; detail: string; startedAt: number; endedAt: number | null; waits: boolean }
+
+/** A copy of the running main turn's watch; `openKeys` maps each open step's key to its index in `steps`. */
+export type WatchSave = {
+  turnStartedAt: number
+  steps: Step[]
+  openKeys: Record<string, number>
+  open: Record<string, { tool: string; startedAt: number; waits: boolean }>
+  lastProgressAt: number | null
+}
+
 export type Metrics = {
   mainTurns: number
   agentTurns: number
@@ -164,6 +176,8 @@ declare module 'claude-code' {
       budgetHidden: BudgetMark | null
       /** When the running main compaction started; null when none runs. The pane reads it, so a start and an end redraw it. */
       compactingSince: number | null
+      /** The running main turn's steps, so a plugin reload in the middle of a turn keeps the strip; null between turns. */
+      watch: WatchSave | null
     }
   }
 }

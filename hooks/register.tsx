@@ -17,7 +17,7 @@ import { statusText } from './status'
 import { costSince, record } from './tally'
 import { observeTools } from './tools'
 import { VERSION } from './version'
-import { quiet, shouldAlert, stepLog, watchStart, watchStop } from './watch'
+import { keepWatch, loadWatch, quiet, shouldAlert, stepLog, watchStart, watchStop } from './watch'
 
 // The state scan reads an atom only where its file declares it, so each file that reads or writes Metrics declares the same one.
 const metrics = atom({ plugin: 'pulse', key: 'metrics' } as const, EMPTY, { shape: SHAPE })
@@ -125,6 +125,8 @@ export const register: Register = (on, options) => {
     await quietly(async () => refreshCosts($, await $.clock.now()))
     await quietly(() => forgetToastMark($))
     await quietly(async () => syncBudget($, await $.clock.now()))
+    // A reload in the middle of a turn runs session.start again: the turn's steps come back, and its clock ticks again.
+    if (await loadWatch($)) await quietly(() => startTicker($))
 
     return next(e)
   })
@@ -135,6 +137,7 @@ export const register: Register = (on, options) => {
     stopTicker()
     watchStop()
     resetRequest()
+    await keepWatch($)
     await quietly(async () => {
       const now = await $.clock.now()
       const costNow = (await quietly(() => $.session.usage()))?.cost?.usd ?? null
@@ -163,6 +166,7 @@ export const register: Register = (on, options) => {
       resetLoops()
       const now = await quietly(() => $.clock.now())
       if (now !== undefined) watchStart(now)
+      await keepWatch($)
       // A notification that wakes an idle session starts a turn; the task it reports on ends here.
       if (now !== undefined && opensAsNotice(e.text)) await record($, { kind: 'notice', text: e.text, now })
       await record($, { kind: 'turn-start', now })
@@ -180,6 +184,7 @@ export const register: Register = (on, options) => {
     const now = await quietly(() => $.clock.now())
     // The turn's steps stay on the strip, still, until the next turn starts.
     const past = isMain ? watchStop(now) : null
+    if (isMain) await keepWatch($)
     const s = isMain ? await quietly(() => $.session.usage()) : undefined
     // The summary breakdown is counted locally and sends no request; it is the one place the auto-compact point shows. It is a
     // call of its own, so a failed estimate costs the runway only, not the turn's figures.

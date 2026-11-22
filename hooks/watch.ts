@@ -1,12 +1,19 @@
-// What the running main turn does now, for the stall alert and the step strip. Module state: a reload starts it over, and the
-// next event fills it. A finished turn's steps go to the metrics, so a reload or a resume keeps the idle strip.
-import type { PastTurn } from '../types'
+// What the running main turn does now, for the stall alert and the step strip. Module state, copied to $.state at each step
+// change, because a plugin reload in the middle of a turn starts the module over. A finished turn's steps go to the metrics.
+import { atom, read, update } from 'claude-code'
+import type { EngineInterface } from 'claude-code'
+
+import type { PastTurn, Step, WatchSave } from '../types'
+import { quietly } from './quietly'
+
+export type { Step }
 
 /** `waits` marks a call put to a decider: its time can be the person's, so it is no stall. */
 type OpenCall = { tool: string; startedAt: number; waits: boolean }
 
-/** One stretch of the running main turn; `detail` is a name-only label, and `endedAt` is null while it runs. */
-export type Step = { kind: 'request' | 'tool' | 'compact'; name: string; detail: string; startedAt: number; endedAt: number | null; waits: boolean }
+const saved = atom({ plugin: 'pulse', key: 'watch' } as const, null as WatchSave | null)
+// A step changed since the last copy; a model chunk or a progress mark alone does not make a copy.
+let dirty = false
 
 // A long turn keeps its newest steps; older ones are too thin to draw.
 const MAX_STEPS = 300
@@ -29,6 +36,44 @@ export const watchStart = (now: number): void => {
   moved = false
   lastProgressAt = now
   alerted = false
+  dirty = true
+}
+
+/** Copies a changed watch to $.state; between turns the copy is null. */
+export async function keepWatch($: EngineInterface): Promise<void> {
+  if (!dirty) return
+  dirty = false
+  const copy: WatchSave | null =
+    turnStartedAt === null
+      ? null
+      : {
+          turnStartedAt,
+          steps: steps.map(s => ({ ...s })),
+          openKeys: Object.fromEntries([...openSteps].map(([key, s]) => [key, steps.indexOf(s)]).filter(([, i]) => (i as number) >= 0)),
+          open: Object.fromEntries([...open].map(([id, c]) => [id, { ...c }])),
+          lastProgressAt,
+        }
+  await quietly(() => update($, saved, () => copy))
+}
+
+/** After a reload, takes the running turn back from $.state, and says whether one came back; a module that watches a turn keeps its own. */
+export async function loadWatch($: EngineInterface): Promise<boolean> {
+  if (turnStartedAt !== null) return false
+  const copy = await quietly(() => read($, saved))
+  if (copy === undefined || copy === null) return false
+  turnStartedAt = copy.turnStartedAt
+  steps = copy.steps.map(s => ({ ...s }))
+  openSteps.clear()
+  for (const [key, i] of Object.entries(copy.openKeys)) {
+    const step = steps[i]
+    if (step !== undefined) openSteps.set(key, step)
+  }
+  open.clear()
+  for (const [id, c] of Object.entries(copy.open)) open.set(id, { ...c })
+  lastProgressAt = copy.lastProgressAt
+  alerted = false
+  moved = false
+  return true
 }
 
 /** A step's end or a call's start or end: the turn moves. */
@@ -47,6 +92,7 @@ const stepEnds = (key: string, now: number): void => {
   if (step === undefined) return
   step.endedAt = Math.max(step.startedAt, now)
   openSteps.delete(key)
+  dirty = true
 }
 
 const stepBegins = (key: string, step: Step): void => {
@@ -55,6 +101,7 @@ const stepBegins = (key: string, step: Step): void => {
   steps.push(step)
   if (steps.length > MAX_STEPS) steps = steps.slice(-MAX_STEPS)
   openSteps.set(key, step)
+  dirty = true
 }
 
 /** A model request of the main loop starts and ends; `key` names it between the two. */
@@ -76,6 +123,7 @@ export const callWaits = (id: string): void => {
   if (call !== undefined) call.waits = true
   const step = openSteps.get(id)
   if (step !== undefined) step.waits = true
+  dirty = true
 }
 
 export const callEnded = (id: string, now: number): void => {
@@ -87,7 +135,7 @@ export const callEnded = (id: string, now: number): void => {
 /** The running turn's steps, oldest first, as copies the pane can keep. */
 export const stepLog = (): Step[] => steps.map(s => ({ ...s }))
 
-/** A turn ends at `endedAt` and gives its steps for the idle strip; with no time, or no watched start (a reload mid-turn), null. */
+/** A turn ends at `endedAt` and gives its steps for the idle strip; with no time, or no watched start, null. */
 export const watchStop = (endedAt?: number): PastTurn | null => {
   const t0 = turnStartedAt
   const past =
@@ -110,6 +158,7 @@ export const watchStop = (endedAt?: number): PastTurn | null => {
   openSteps.clear()
   lastProgressAt = null
   moved = false
+  dirty = true
   return past
 }
 

@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import { quietly } from './quietly'
 import { record } from './tally'
 import { requestStarted } from './cache'
-import { callEnded, callStarted, callWaits, progress, requestBegan, requestEnded, touch } from './watch'
+import { callEnded, callStarted, callWaits, keepWatch, progress, requestBegan, requestEnded, touch } from './watch'
 
 type On = Parameters<Register>[0]
 
@@ -57,6 +57,7 @@ export function observe(on: On): void {
     if (began !== undefined) {
       callStarted(COMPACTION, 'Compaction', began, '', 'compact')
       callWaits(COMPACTION)
+      await keepWatch($)
       await markCompacting($, began)
     }
     let at: number | undefined
@@ -67,6 +68,7 @@ export function observe(on: On): void {
       at = await quietly(() => $.clock.now())
       if (began !== undefined) {
         callEnded(COMPACTION, at ?? began)
+        await keepWatch($)
         await markCompacting($, null)
       }
     }
@@ -125,6 +127,7 @@ export function observe(on: On): void {
     if (startedAt !== undefined && e.agentId === undefined) {
       requestStarted(startedAt)
       requestBegan(stepKey, startedAt)
+      await keepWatch($)
     }
     let firstAt: number | null = null
     // After one failed clock read the step stops its timing, so a broken clock costs one try, not one per chunk.
@@ -150,7 +153,10 @@ export function observe(on: On): void {
     } finally {
       endedAt = await quietly(() => $.clock.now())
       if (endedAt !== undefined) progress(endedAt)
-      if (e.agentId === undefined) requestEnded(stepKey, endedAt ?? startedAt ?? 0)
+      if (e.agentId === undefined) {
+        requestEnded(stepKey, endedAt ?? startedAt ?? 0)
+        await keepWatch($)
+      }
     }
     await record($, {
       kind: 'step',
