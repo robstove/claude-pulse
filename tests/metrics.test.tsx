@@ -101,6 +101,26 @@ test('subagents, compactions, prompts, requests, slow calls, and files show in t
   }
 })
 
+test('a safe 5-hour window fills in blue, and turns amber like any window past the warning level', async ($, on) => {
+  const { state } = engine(on)
+  const limitsChart = async () => {
+    const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+    const chart = (await ui.findAll({ type: 'Svg' })).find(c => String(c.props.alt).startsWith('Rate limits'))
+    await ui.unmount()
+    return String(chart?.props.source)
+  }
+  state.limits = [{ kind: 'five_hour', percentUsed: 30 }, { kind: 'seven_day', percentUsed: 10 }]
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const calm = await limitsChart()
+  expect(calm).toContain('fill="#1f6feb"')
+  expect(calm).toContain('fill="#3fb950"')
+
+  state.limits = [{ kind: 'five_hour', percentUsed: 70 }]
+  const warm = await limitsChart()
+  expect(warm).not.toContain('#1f6feb')
+  expect(warm).toContain('fill="#d29922"')
+})
+
 test('the limits section projects when a window fills at this pace', async ($, on) => {
   const { state } = engine(on)
   const start = state.now

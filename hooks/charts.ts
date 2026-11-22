@@ -8,6 +8,8 @@ export const HEX = {
   warn: '#d29922',
   bad: '#f85149',
   accent: '#58a6ff',
+  // Darker than accent, so the accent marker at now still shows on a calm 5-hour fill.
+  calm: '#1f6feb',
   cost: '#a371f7',
   cacheRead: '#39c5cf',
   cacheWrite: '#a371f7',

@@ -138,9 +138,14 @@ const spendRow = (days: readonly DaySpend[], y: number, w: number, labelW: numbe
 
 const ROW_H = 20
 
+// A safe 5-hour window is blue, so it reads apart from the 7-day window; amber and red keep their warning meaning.
+const isCalm = (p: Pace): boolean => p.kind === 'five_hour' && level(p.pct) === 'ok'
+const fillHex = (p: Pace): string => (isCalm(p) ? HEX.calm : HEX[level(p.pct)])
+const fillTheme = (p: Pace) => (isCalm(p) ? 'suggestion' : THEME[level(p.pct)])
+
 /** One window's bar: the fill, the pace line to where the window reaches by its reset, the day or hour ticks, now, and the percent. */
 const limitRow = (p: Pace, y: number, w: number, labelW: number, barW: number): string => {
-  const fill = HEX[level(p.pct)]
+  const fill = fillHex(p)
   const fw = (Math.min(100, p.pct) / 100) * barW
   const ahead = p.atResetPct !== null ? (Math.min(100, p.atResetPct) / 100) * barW : fw
   const reach = p.atResetPct !== null && p.atResetPct >= 100 ? HEX.bad : fill
@@ -221,7 +226,7 @@ export const limits: Section = (ui, { m, usage, now, daily }) => {
             <ui.Box flexDirection="column">
               <Text>
                 <Text dimColor>{p.label.slice(0, LABEL - 1).padEnd(LABEL)}</Text>
-                {ui.termBar(p.pct / 100, THEME[level(p.pct)], width)}
+                {ui.termBar(p.pct / 100, fillTheme(p), width)}
               </Text>
               {marks !== null && <Text dimColor>{marks}</Text>}
             </ui.Box>
