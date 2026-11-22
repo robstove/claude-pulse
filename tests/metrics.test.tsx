@@ -115,7 +115,7 @@ test('a safe 5-hour window fills in blue, and turns amber like any window past t
   expect(calm).toContain('fill="#1f6feb"')
   expect(calm).toContain('fill="#3fb950"')
 
-  state.limits = [{ kind: 'five_hour', percentUsed: 70 }]
+  state.limits = [{ kind: 'five_hour', percentUsed: 80 }]
   const warm = await limitsChart()
   expect(warm).not.toContain('#1f6feb')
   expect(warm).toContain('fill="#d29922"')

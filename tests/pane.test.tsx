@@ -59,7 +59,7 @@ test('the prompt hint carries the summary with no plugin label', async ($, on) =
   on('ui.status', () => ({ value: undefined }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.usage', () => ({
-    value: { startedAt: 0, context: { tokens: 170_000, window: 200_000, percent: 85 }, rateLimits: [], cost: { usd: 1.5 } },
+    value: { startedAt: 0, context: { tokens: 190_000, window: 200_000, percent: 95 }, rateLimits: [], cost: { usd: 1.5 } },
   }))
   on('tool.call', () => ({ result: {} }))
   let tick = 0
@@ -74,11 +74,11 @@ test('the prompt hint carries the summary with no plugin label', async ($, on) =
 
   const desktop = await $.ui.mount({ ...HINT, surface: 'desktop' })
   expect(await desktop.find({ type: 'Text', text: '? for shortcuts' })).toBeDefined()
-  expect(await desktop.find({ type: 'Text', text: '■ ctx 85% · $1.50 · 1 tools' })).toBeDefined()
+  expect(await desktop.find({ type: 'Text', text: '■ ctx 95% · $1.50 · 1 tools' })).toBeDefined()
   await desktop.unmount()
 
   const terminal = await $.ui.mount({ ...HINT, surface: 'terminal' })
-  expect(await terminal.find({ type: 'Text', text: '? for shortcuts  ■ ctx 85% · $1.50 · 1 tools' })).toBeDefined()
+  expect(await terminal.find({ type: 'Text', text: '? for shortcuts  ■ ctx 95% · $1.50 · 1 tools' })).toBeDefined()
   await terminal.unmount()
 })
 

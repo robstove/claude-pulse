@@ -53,15 +53,17 @@ export const EMPTY: Metrics = {
 export const SHAPE = 'metrics-5'
 
 /** The fill at which a context or rate-limit meter turns amber, and red; the user's options set them at load. */
-export const levels = { warnAt: 60, alertAt: 80 }
+// The same defaults as warnAt and alertAt in plugin.json.
+const DEFAULT_LEVELS = { warnAt: 75, alertAt: 90 } as const
+export const levels = { ...DEFAULT_LEVELS }
 
 const percentOption = (v: unknown, fallback: number): number => (typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 100 ? v : fallback)
 
 export const setLevels = (options: Readonly<Record<string, unknown>> | undefined): void => {
-  const warnAt = percentOption(options?.warnAt, 60)
-  const alertAt = percentOption(options?.alertAt, 80)
+  const warnAt = percentOption(options?.warnAt, DEFAULT_LEVELS.warnAt)
+  const alertAt = percentOption(options?.alertAt, DEFAULT_LEVELS.alertAt)
   // A pair out of order counts as not set, so the meter never turns red before it turns amber.
-  Object.assign(levels, warnAt < alertAt ? { warnAt, alertAt } : { warnAt: 60, alertAt: 80 })
+  Object.assign(levels, warnAt < alertAt ? { warnAt, alertAt } : DEFAULT_LEVELS)
 }
 
 /** The options past the meter levels: the cache TTL (0 = guess), when a quiet turn alerts (0 = never), the sections to draw,

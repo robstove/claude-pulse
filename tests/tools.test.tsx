@@ -205,8 +205,8 @@ test('the warnAt and alertAt options set when a meter turns amber and red', { op
   expect(await hintLine($)).toContain('■ ctx 70%')
 })
 
-test('with no options, 70% context is amber', async ($, on) => {
+test('with no options, 70% context is still green, because amber starts at 75%', async ($, on) => {
   world(on)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  expect(await hintLine($)).toContain('▲ ctx 70%')
+  expect(await hintLine($)).toContain('● ctx 70%')
 })

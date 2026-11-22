@@ -7,13 +7,13 @@
     "warnAt": {
       "type": "number",
       "title": "Amber at",
-      "default": 60,
+      "default": 75,
       "description": "The fill, in percent, at which the context and rate-limit meters turn amber. Must be below Red at."
     },
     "alertAt": {
       "type": "number",
       "title": "Red at",
-      "default": 80,
+      "default": 90,
       "description": "The fill, in percent, at which the context and rate-limit meters turn red. Must be above Amber at and at most 100."
     },
     "cacheMinutes": {
