@@ -2,7 +2,9 @@ import type { Register } from 'claude-code'
 
 import { quietly } from './quietly'
 import { callLabel } from './label'
-import { record } from './tally'
+import { loopReached, loopText } from './loop'
+import { callFailed, record } from './tally'
+import type { ToolObservation } from './tally'
 import { callEnded, callStarted, callWaits } from './watch'
 
 type On = Parameters<Register>[0]
@@ -40,7 +42,8 @@ export function observeTools(on: On): void {
     const startedAt = caller === 'engine' ? await quietly(() => $.clock.now()) : undefined
     // The stall watch holds the main loop's calls; tool.check, which the engine runs inside next, marks one put to a decider.
     const watched = id !== undefined && startedAt !== undefined && e.agentId === undefined
-    if (watched) callStarted(id, e.tool, startedAt, callLabel(e as unknown as Readonly<Record<string, unknown>>))
+    const label = callLabel(e as unknown as Readonly<Record<string, unknown>>)
+    if (watched) callStarted(id, e.tool, startedAt, label)
     let ran: Awaited<ReturnType<typeof next>>
     let endedAt: number | undefined
     // The call ends in `finally`, so one that throws never stays open on the strip or holds the stall watch off.
@@ -56,7 +59,7 @@ export function observeTools(on: On): void {
       await record($, { kind: 'plugin-call', plugin: caller })
       return ran
     }
-    await record($, {
+    const seen: ToolObservation = {
       kind: 'tool',
       tool: e.tool,
       input: e as unknown as Readonly<Record<string, unknown>>,
@@ -70,7 +73,12 @@ export function observeTools(on: On): void {
       aborted: next.signal.aborted,
       startedAt,
       endedAt,
-    })
+    }
+    await record($, seen)
+    // The clock readings order the calls; with none the loop is not counted, as Pulse cannot tell a retry from a batch.
+    if (startedAt !== undefined && endedAt !== undefined && loopReached(e.agentId, e.tool, callFailed(seen), startedAt, endedAt)) {
+      void quietly(async () => $.ui.toast(loopText(e.tool, label, e.agentId !== undefined), { timeoutMs: 10_000 }))
+    }
     return ran
   })
 }

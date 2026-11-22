@@ -4,6 +4,7 @@ import type { EngineInterface, Register, Timer } from 'claude-code'
 import { cacheLeftMs, cacheTtlMs, resetRequest, warnLeadMs } from './cache'
 import { fmtMs, fmtNum } from './charts'
 import { refreshCosts } from './ledger'
+import { resetLoops } from './loop'
 import { observe } from './observe'
 import { drawPane } from './pane'
 import { quietly } from './quietly'
@@ -152,6 +153,7 @@ export const register: Register = (on, options) => {
       await quietly(() => adopt($))
       stopTicker()
       resetRequest()
+      resetLoops()
       const now = await quietly(() => $.clock.now())
       if (now !== undefined) watchStart(now)
       // A notification that wakes an idle session starts a turn; the task it reports on ends here.
@@ -166,6 +168,8 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     const isMain = e.agentId === undefined
     if (isMain) stopTicker()
+    // A subagent that ends takes its failure counts with it.
+    else resetLoops(e.agentId)
     const now = await quietly(() => $.clock.now())
     // The turn's steps stay on the strip, still, until the next turn starts.
     if (isMain) watchStop(now)

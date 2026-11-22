@@ -188,11 +188,19 @@ function turnEnded(m: Metrics, o: Extract<Observation, { kind: 'turn-end' }>): M
   }
 }
 
+export type ToolObservation = Extract<Observation, { kind: 'tool' }>
+
+/** A call that a rule, a hook, or the person refused. A refusal at the permission dialog comes back as an asked call's error
+ * that the engine words in its fixed refusal text. */
+const callRefused = (o: ToolObservation): boolean => o.deny || (o.denied && o.isError) || (o.asked && o.isError && REJECTED.test(o.text ?? ''))
+
+/** A call whose tool failed: an error that is no refusal, and no interrupt, which ends with an error too though the tool did not fail. */
+export const callFailed = (o: ToolObservation): boolean => o.isError && !o.aborted && !callRefused(o)
+
 // A call put to a decider counts its whole span as wait time apart from tool time, because the engine reports no point where
 // the decision ends. A call refused before it ran adds no time.
-function toolCalled(m: Metrics, o: Extract<Observation, { kind: 'tool' }>): Metrics {
-  // A refusal at the permission dialog comes back as an asked call's error that the engine words in its fixed refusal text.
-  const refused = o.deny || (o.denied && o.isError) || (o.asked && o.isError && REJECTED.test(o.text ?? ''))
+function toolCalled(m: Metrics, o: ToolObservation): Metrics {
+  const refused = callRefused(o)
   const prev = m.byTool[o.tool] ?? EMPTY_TOOL
   if (refused) return { ...m, toolRefusals: m.toolRefusals + 1, byTool: { ...m.byTool, [o.tool]: { ...prev, refused: prev.refused + 1 } } }
   const isMain = o.agentId === undefined
@@ -200,8 +208,7 @@ function toolCalled(m: Metrics, o: Extract<Observation, { kind: 'tool' }>): Metr
   // The tool's own time; null when the span also holds a decider's wait.
   const ms = o.asked ? null : span
   const waitMs = ms === null ? span : 0
-  // A call the person interrupted ends with an error too, but the tool did not fail.
-  const failed = o.isError && !o.aborted
+  const failed = callFailed(o)
   const label = callLabel(o.input)
   // A subagent's task reports its end to that subagent, which Pulse does not hear, so only the main loop's tasks are timed.
   const task = failed || !isMain ? undefined : taskOf(o.result)

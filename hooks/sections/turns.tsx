@@ -157,11 +157,12 @@ export const stripSvg = (w: number, live: LiveTurn, idleText?: string): string =
 }
 
 /** The running turn's strip, or between turns the last one's, still; a line where the surface draws no charts. */
-const liveStrip = (ui: Ui, live: LiveTurn | null, last: { ms: number; steps: LiveStep[] } | null, lastTurnMs: number) => {
+const liveStrip = (ui: Ui, live: LiveTurn | null, last: { ms: number; steps: LiveStep[] } | null, m: Metrics) => {
   if (live === null) {
     const past: LiveTurn = { ms: last?.ms ?? 0, toolCalls: 0, steps: last?.steps ?? [], quietMs: 0, stallMs: 0 }
-    // The turn's own duration, as the hint and the header show it, not the hook's clock readings.
-    const idle = past.steps.length > 0 ? `Idle · last turn ${fmtMs(lastTurnMs)}` : 'Idle'
+    // The turn's own duration, as the hint and the header show it, not the hook's clock readings; its cost when it is known.
+    const cost = m.turns.at(-1)?.costUsd ?? null
+    const idle = past.steps.length > 0 ? `Idle · last turn ${fmtMs(m.lastTurnMs)}${cost !== null ? ` · ${fmtUsd(cost)}` : ''}` : 'Idle'
     const line = past.steps.length > 0 ? `${idle} · ${liveStatus(past).counts}` : idle
     return ui.Svg ? ui.chart(stripSvg(ui.px, past, idle), line) : ui.caption(line)
   }
@@ -192,7 +193,7 @@ export const turns: Section = (ui, { m, live, lastTurn }) => {
       ? 'none yet'
       : `${plural(m.mainTurns, 'turn')}${m.agentTurns > 0 ? ` + ${m.agentTurns} subagent` : ''} · avg ${fmtMs(avgMs)} · max ${fmtMs(m.longestTurnMs)}`,
     [
-      liveStrip(ui, live, lastTurn, m.lastTurnMs),
+      liveStrip(ui, live, lastTurn, m),
       ui.Svg ? (
         ui.chart(turnsSvg(ui.px, m.turns, firstTurn, live), `Turn time and cost, last ${fmtMs(m.lastTurnMs)}`)
       ) : (
