@@ -392,3 +392,28 @@ test('between turns the strip stays, still, with the last turn faded; before a t
   expect(await cleared.find({ type: 'Text', text: 'Idle' })).toBeDefined()
   await cleared.unmount()
 })
+
+test('the pane header has a dot that pulses green while a turn runs and stays grey and still between turns', async ($, on) => {
+  const { state } = engine(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const dot = async () => {
+    const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
+    const found = (await pane.findAll({ type: 'Svg' })).find(c => c.props.width === 12)
+    await pane.unmount()
+    return found
+  }
+  const idle = await dot()
+  expect(idle?.props.alt).toBe('No turn running')
+  expect(String(idle?.props.source)).toContain('#8b949e')
+  expect(String(idle?.props.source)).not.toContain('class="ring"')
+  await $.turn.start({ text: 'hi', turnId: 't1' })
+  state.now += 12_000
+  const busy = await dot()
+  expect(busy?.props.alt).toBe('Working · running 12s')
+  expect(String(busy?.props.source)).toContain('#3fb950')
+  expect(String(busy?.props.source)).toContain('class="ring"')
+  const term = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await term.find({ type: 'Text', text: '●' }))?.props.color).toBe('success')
+  expect(await term.find({ type: 'Text', text: 'Elapsed · running 12s' })).toBeDefined()
+  await term.unmount()
+})

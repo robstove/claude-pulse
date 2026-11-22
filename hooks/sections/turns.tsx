@@ -75,7 +75,7 @@ const requestsLine = (ui: Ui, m: Metrics) => {
 const QUIET_SHOW_MS = 30_000
 
 // One sweep of the shimmer over the running step. Its phase comes from the turn's time, so the redraw each tick does not restart it.
-const SHIMMER_MS = 1600
+export const PULSE_MS = 1600
 const STEP_COLOR = { request: HEX.accent, tool: HEX.muted, compact: HEX.cost } as const
 
 const wholeSeconds = (ms: number): string => fmtMs(Math.max(1000, Math.floor(ms / 1000) * 1000))
@@ -112,7 +112,7 @@ export const stripSvg = (w: number, live: LiveTurn, idleText?: string): string =
   const total = Math.max(1, live.ms)
   const h = 38
   const x = (ms: number) => (Math.min(ms, total) / total) * w
-  const phase = `animation-delay:-${Math.round(live.ms % SHIMMER_MS)}ms`
+  const phase = `animation-delay:-${Math.round(live.ms % PULSE_MS)}ms`
   // Running is green, the pane's healthy colour: an orange step read as a failure beside the red of failed calls.
   const color = idle || waiting ? HEX.muted : stalled ? HEX.warn : HEX.ok
   const closed = live.steps
@@ -134,13 +134,13 @@ export const stripSvg = (w: number, live: LiveTurn, idleText?: string): string =
       (still
         ? ''
         : `<style>@keyframes sweep{from{transform:translateX(-${gw.toFixed(0)}px)}to{transform:translateX(${ow.toFixed(0)}px)}}` +
-          `.sweep{animation:sweep ${SHIMMER_MS}ms cubic-bezier(.65,0,.35,1) infinite;${phase}}</style>` +
+          `.sweep{animation:sweep ${PULSE_MS}ms cubic-bezier(.65,0,.35,1) infinite;${phase}}</style>` +
           `<g clip-path="url(#now)"><rect class="sweep" x="${x0.toFixed(1)}" y="0" width="${gw.toFixed(1)}" height="14" fill="url(#shine)"/></g>`)
   }
   const dot = still
     ? `<circle cx="4" cy="28" r="4" fill="${color}"/>`
     : `<style>@keyframes ring{from{transform:scale(1);opacity:.6}to{transform:scale(2.6);opacity:0}}` +
-      `.ring{transform-box:fill-box;transform-origin:center;animation:ring ${SHIMMER_MS}ms cubic-bezier(.16,1,.3,1) infinite;${phase}}` +
+      `.ring{transform-box:fill-box;transform-origin:center;animation:ring ${PULSE_MS}ms cubic-bezier(.16,1,.3,1) infinite;${phase}}` +
       `@media (prefers-reduced-motion: reduce){.ring,.sweep{animation:none;opacity:0}}</style>` +
       `<circle class="ring" cx="4" cy="28" r="4" fill="${color}"/><circle cx="4" cy="28" r="4" fill="${color}"/>`
   return svg(
@@ -191,17 +191,10 @@ export const turns: Section = (ui, { m, live, lastTurn }) => {
   const firstTurn = m.mainTurns - m.turns.length + 1
   return ui.section(
     'Turns',
-    live ? (
-      <Text size="caption" tabular>
-        <Text color="success" weight="semibold">
-          Running {wholeSeconds(live.ms)}
-        </Text>
-      </Text>
-    ) : m.mainTurns === 0 ? (
-      'none yet'
-    ) : (
-      `${plural(m.mainTurns, 'turn')}${m.agentTurns > 0 ? ` + ${m.agentTurns} subagent` : ''} · avg ${fmtMs(avgMs)} · max ${fmtMs(m.longestTurnMs)}`
-    ),
+    // The pane's header shows the running time beside its dot, so this line keeps the summary at all times.
+    m.mainTurns === 0
+      ? 'none yet'
+      : `${plural(m.mainTurns, 'turn')}${m.agentTurns > 0 ? ` + ${m.agentTurns} subagent` : ''} · avg ${fmtMs(avgMs)} · max ${fmtMs(m.longestTurnMs)}`,
     [
       liveStrip(ui, live, lastTurn, m.lastTurnMs),
       ui.Svg ? (
