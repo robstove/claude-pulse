@@ -10,13 +10,13 @@ Live session metrics for Claude Code. Pulse tracks each session with hooks and s
 - **Turns**: time and cost per turn on one chart. While a turn runs, a strip above it shows the turn's model requests and tool calls as they happen; the current step is green and moves, and turns amber and still when the turn stays quiet past a limit. The top of the pane shows the same state: a dot that breathes and rings in green while a turn or a background task runs, and the word Live, Stalled, or Idle, with the running time or the background task count. Between turns the strip stays, faded, and names the last turn's time and cost; the session save keeps it, so it is there after a plugin reload or a resume. A reload in the middle of a turn keeps the turn's steps too. A line under it names the three tools that took the most time in that turn. A toast tells you when a turn stays quiet past the limit, and when one tool fails 3 times in a row. Under it: model requests per turn, time to the first token, output tokens per second, effort, server tools, cut replies, and interrupted or failed turns.
 - **Activity**: Claude's working time and your time between turns, with your prompt and slash-command counts and the two commands you use most. MCP tools show by their short names here and in Turns and Tools.
 - **Tokens**: cache read, cache write, input, and output as one stacked bar. Between turns, a countdown shows how long the prompt cache stays warm, and a toast warns before it expires.
-- **Tools**: total time per tool, with failed calls in red, the p50 and p95 time on hover, and the three slowest calls.
+- **Tools**: total time per tool, with failed calls in red, and the three slowest calls.
 - **Files**: the files that Claude edited, most edited first.
 - **Models**: turns, average time, and tokens for each model, so a `/model` switch shows its own share.
 - **Subagents**: starts, time, tokens, and model for each subagent type.
 - **History**: cost per day for the last 14 days across all sessions, with today and 7-day totals. With a daily budget set, it shows today's share of the budget. From 80%, a band above the prompt shows today's spend and the budget, amber and then red at 100%, and the hint line under the prompt shows them too. Hide removes the band for the rest of the day, in other open sessions after their next turn, until the spend reaches 100% or the budget changes. VS Code draws neither the band nor the hint line, so there the History caption alone shows the share.
 
-On desktop, VS Code, and mobile the charts are SVG with hover tooltips. The terminal gets block-character bars and sparklines.
+On desktop, VS Code, and mobile the charts are SVG images, with no hover tooltips, because an interactive frame flickers when the pane redraws each second. The terminal gets block-character bars and sparklines.
 
 ## Requirements
 
