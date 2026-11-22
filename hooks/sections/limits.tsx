@@ -138,8 +138,8 @@ const spendRow = (days: readonly DaySpend[], y: number, w: number, labelW: numbe
 
 const ROW_H = 20
 
-// A safe 5-hour window is blue, so it reads apart from the 7-day window; amber and red keep their warning meaning.
-const isCalm = (p: Pace): boolean => p.kind === 'five_hour' && level(p.pct) === 'ok'
+// A window inside its budget is blue, because green in the pane means a turn runs; amber and red keep their warning meaning.
+const isCalm = (p: Pace): boolean => level(p.pct) === 'ok'
 const fillHex = (p: Pace): string => (isCalm(p) ? HEX.calm : HEX[level(p.pct)])
 const fillTheme = (p: Pace) => (isCalm(p) ? 'suggestion' : THEME[level(p.pct)])
 
