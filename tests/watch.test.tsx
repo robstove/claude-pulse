@@ -3,7 +3,7 @@ import { expect, test } from 'claude-code/testing'
 import { callEnded, callStarted, callWaits, progress, quiet, shouldAlert, touch, watchStart } from '../hooks/watch'
 import { fmtMs } from '../hooks/charts'
 import { dayKey } from '../hooks/ledger'
-import { liveStatus, stripSvg, toolTimeText } from '../hooks/sections/turns'
+import { PULSE_MS, liveStatus, stripSvg, toolTimeText } from '../hooks/sections/turns'
 import type { LiveTurn } from '../hooks/sections/ui'
 import { HINT, PANE, memoryStore } from './kit'
 import type { Dollar, On } from './kit'
@@ -366,13 +366,17 @@ test('a request that throws mid-stream ends its step, so the strip shows nothing
   await term.unmount()
 })
 
+// The header's state word is also Idle, in semibold; the strip's caption is the plain one.
+const stripIdle = async (pane: { findAll: (q: { type: string; text: string }) => Promise<{ props: Record<string, unknown> }[]> }) =>
+  (await pane.findAll({ type: 'Text', text: 'Idle' })).some(t => t.props.weight !== 'semibold')
+
 test('between turns the strip stays, still, with the last turn faded; before a turn and after /clear it says Idle', async ($, on) => {
   const { state } = engine(on)
   step(on)
   on('session.end', () => ({ sessionId: 'abc' }))
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const fresh = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await fresh.find({ type: 'Text', text: 'Idle' })).toBeDefined()
+  expect(await stripIdle(fresh)).toBe(true)
   await fresh.unmount()
 
   await $.turn.start({ text: 'hi', turnId: 't1' })
@@ -392,7 +396,7 @@ test('between turns the strip stays, still, with the last turn faded; before a t
 
   await $.session.end({ reason: 'clear', sessionId: 'abc', resume: { id: 'abc' } })
   const cleared = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await cleared.find({ type: 'Text', text: 'Idle' })).toBeDefined()
+  expect(await stripIdle(cleared)).toBe(true)
   await cleared.unmount()
 })
 
@@ -419,6 +423,43 @@ test('the pane header has a dot that pulses green while a turn runs and stays gr
   expect((await term.find({ type: 'Text', text: '●' }))?.props.color).toBe('success')
   expect(await term.find({ type: 'Text', text: 'Elapsed · running 12s' })).toBeDefined()
   await term.unmount()
+})
+
+test('a band across the top of the pane is green and sweeps while a turn runs, amber when it stalls, and a grey track between turns', async ($, on) => {
+  const { state } = engine(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const band = async (word: string) => {
+    const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
+    const svg = (await pane.findAll({ type: 'Svg' })).find(c => c.props.alt === `Turn state: ${word}`)
+    const color = (await pane.find({ type: 'Text', text: word }))?.props.color
+    await pane.unmount()
+    const term = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    const rule = (await term.find({ type: 'Text', text: /^━+$/ }))?.props
+    await term.unmount()
+    return { source: String(svg?.props.source), color, rule }
+  }
+  const idle = await band('Idle')
+  expect(idle.source).toContain('height="4"')
+  expect(idle.source).not.toContain('#3fb950')
+  expect(idle.color).toBeUndefined()
+  expect(idle.rule).toMatchObject({ dimColor: true })
+  await $.turn.start({ text: 'hi', turnId: 't1' })
+  state.now += 12_000
+  const busy = await band('Live')
+  expect(busy.source).toContain('#3fb950')
+  expect(busy.source).toContain('class="sweep"')
+  // The sheen moves in step with the dot and the strip, is clipped to the band, and stops for reduced motion.
+  expect(busy.source).toContain(`animation-delay:-${12_000 % PULSE_MS}ms`)
+  expect(busy.source).toContain('clip-path="url(#band)"')
+  expect(busy.source).toContain('prefers-reduced-motion: reduce){.sweep{animation:none')
+  expect(busy.color).toBe('success')
+  expect(busy.rule?.color).toBe('success')
+  state.now += 4 * 60_000
+  const stalled = await band('Stalled')
+  expect(stalled.source).toContain('#d29922')
+  expect(stalled.source).not.toContain('class="sweep"')
+  expect(stalled.color).toBe('warning')
+  expect(stalled.rule?.color).toBe('warning')
 })
 
 test('a tool that fails 3 times in a row gives one toast; a success or a new turn starts the count again', async ($, on) => {

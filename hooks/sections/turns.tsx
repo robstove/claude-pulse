@@ -76,6 +76,23 @@ const QUIET_SHOW_MS = 30_000
 
 // One sweep of the shimmer over the running step. Its phase comes from the turn's time, so the redraw each tick does not restart it.
 export const PULSE_MS = 1600
+
+/** The animation phase of a turn `ms` long: every motion in the pane takes it, so they move in step and a redraw restarts none. */
+export const phase = (ms: number): string => `animation-delay:-${Math.round(ms % PULSE_MS)}ms`
+
+/** A white sheen that fades in and out across its width, as a gradient with this id. */
+export const shineDef = (id: string): string =>
+  `<linearGradient id="${id}"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".55"/>` +
+  `<stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>`
+
+/** The CSS for class `cls`: a sheen `gw` wide that sweeps across a slot `to` wide, once a pulse. */
+export const sweepCss = (cls: string, gw: number, to: number, ms: number): string =>
+  `@keyframes ${cls}{from{transform:translateX(-${gw.toFixed(0)}px)}to{transform:translateX(${to.toFixed(0)}px)}}` +
+  `.${cls}{animation:${cls} ${PULSE_MS}ms cubic-bezier(.65,0,.35,1) infinite;${phase(ms)}}`
+
+/** The CSS that stops and hides these classes' motion for a person who asks for reduced motion. */
+export const stillWhenReduced = (selectors: string): string => `@media (prefers-reduced-motion: reduce){${selectors}{animation:none;opacity:0}}`
+
 const STEP_COLOR = { request: HEX.accent, tool: HEX.muted, compact: HEX.cost } as const
 
 const wholeSeconds = (ms: number): string => fmtMs(Math.max(1000, Math.floor(ms / 1000) * 1000))
@@ -108,7 +125,6 @@ export const stripSvg = (w: number, live: LiveTurn, idleText?: string): string =
   const total = Math.max(1, live.ms)
   const h = 38
   const x = (ms: number) => (Math.min(ms, total) / total) * w
-  const phase = `animation-delay:-${Math.round(live.ms % PULSE_MS)}ms`
   // Running is green, the pane's healthy colour: an orange step read as a failure beside the red of failed calls.
   const color = idle ? HEX.muted : stalled ? HEX.warn : HEX.ok
   const closed = live.steps
@@ -129,21 +145,19 @@ export const stripSvg = (w: number, live: LiveTurn, idleText?: string): string =
       `<rect x="${x0.toFixed(1)}" y="0" width="${ow.toFixed(1)}" height="14" rx="3" fill="${color}"/>` +
       (still
         ? ''
-        : `<style>@keyframes sweep{from{transform:translateX(-${gw.toFixed(0)}px)}to{transform:translateX(${ow.toFixed(0)}px)}}` +
-          `.sweep{animation:sweep ${PULSE_MS}ms cubic-bezier(.65,0,.35,1) infinite;${phase}}</style>` +
+        : `<style>${sweepCss('sweep', gw, ow, live.ms)}</style>` +
           `<g clip-path="url(#now)"><rect class="sweep" x="${x0.toFixed(1)}" y="0" width="${gw.toFixed(1)}" height="14" fill="url(#shine)"/></g>`)
   }
   const dot = still
     ? `<circle cx="4" cy="28" r="4" fill="${color}"/>`
     : `<style>@keyframes ring{from{transform:scale(1);opacity:.6}to{transform:scale(2.6);opacity:0}}` +
-      `.ring{transform-box:fill-box;transform-origin:center;animation:ring ${PULSE_MS}ms cubic-bezier(.16,1,.3,1) infinite;${phase}}` +
-      `@media (prefers-reduced-motion: reduce){.ring,.sweep{animation:none;opacity:0}}</style>` +
+      `.ring{transform-box:fill-box;transform-origin:center;animation:ring ${PULSE_MS}ms cubic-bezier(.16,1,.3,1) infinite;${phase(live.ms)}}` +
+      `${stillWhenReduced('.ring,.sweep')}</style>` +
       `<circle class="ring" cx="4" cy="28" r="4" fill="${color}"/><circle cx="4" cy="28" r="4" fill="${color}"/>`
   return svg(
     w,
     h,
-    `<defs><linearGradient id="shine"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".55"/>` +
-      `<stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs>` +
+    `<defs>${shineDef('shine')}</defs>` +
       `<rect width="${w}" height="14" rx="3" fill="${HEX.track}"/>` +
       // The open step first: a step that ended while it ran draws over it.
       current +
