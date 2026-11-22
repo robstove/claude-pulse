@@ -81,23 +81,19 @@ const STEP_COLOR = { request: HEX.accent, tool: HEX.muted, compact: HEX.cost } a
 const wholeSeconds = (ms: number): string => fmtMs(Math.max(1000, Math.floor(ms / 1000) * 1000))
 
 /** What the running turn does now: its newest open step and how long it has run, or how long it went quiet past the limit. */
-export const liveStatus = (live: LiveTurn): { open: LiveStep | undefined; stalled: boolean; waiting: boolean; now: string; counts: string } => {
+export const liveStatus = (live: LiveTurn): { open: LiveStep | undefined; stalled: boolean; now: string; counts: string } => {
   const open = live.steps.filter(s => s.toMs === null).at(-1)
-  // A call put to a permission decision may wait on the person, or run once approved: no event tells the two apart, so it
-  // shows still and grey with text that holds for both, and never as a stall.
+  // A call put to a permission decision may wait on the person or run once decided, and in auto mode nearly every call that
+  // writes is put to the classifier: it shows as running, and never as a stall, since its wait may be the person's.
   const waiting = open?.waits === true
   const stalled = !waiting && live.stallMs > 0 && live.quietMs >= live.stallMs
   const what = open === undefined ? 'Working' : `${open.name}${open.detail !== '' ? ` · ${open.detail.length > 40 ? `${open.detail.slice(0, 39)}…` : open.detail}` : ''}`
   const since = open === undefined ? Math.max(0, ...live.steps.map(s => s.toMs ?? 0)) : open.fromMs
   const quiet = !waiting && live.quietMs >= QUIET_SHOW_MS ? ` · quiet ${wholeSeconds(live.quietMs)}` : ''
-  const now = waiting
-    ? `${what} · approval asked ${wholeSeconds(live.ms - since)}`
-    : stalled
-      ? `${what} · quiet ${wholeSeconds(live.quietMs)}`
-      : `${what} · running ${wholeSeconds(live.ms - since)}${quiet}`
+  const now = stalled ? `${what} · quiet ${wholeSeconds(live.quietMs)}` : `${what} · running ${wholeSeconds(live.ms - since)}${quiet}`
   const requests = live.steps.filter(s => s.kind === 'request').length
   const calls = live.steps.filter(s => s.kind === 'tool').length
-  return { open, stalled, waiting, now, counts: `${plural(requests, 'request')} · ${plural(calls, 'call')}` }
+  return { open, stalled, now, counts: `${plural(requests, 'request')} · ${plural(calls, 'call')}` }
 }
 
 // The running turn on its own time axis: requests blue, tool calls grey, compactions purple. The open step is green with a
@@ -106,15 +102,15 @@ export const liveStatus = (live: LiveTurn): { open: LiveStep | undefined; stalle
 export const stripSvg = (w: number, live: LiveTurn, idleText?: string): string => {
   const idle = idleText !== undefined
   const status = liveStatus(live)
-  const { open, stalled, waiting, counts } = status
+  const { open, stalled, counts } = status
   const now = idleText ?? status.now
-  const still = idle || stalled || waiting
+  const still = idle || stalled
   const total = Math.max(1, live.ms)
   const h = 38
   const x = (ms: number) => (Math.min(ms, total) / total) * w
   const phase = `animation-delay:-${Math.round(live.ms % PULSE_MS)}ms`
   // Running is green, the pane's healthy colour: an orange step read as a failure beside the red of failed calls.
-  const color = idle || waiting ? HEX.muted : stalled ? HEX.warn : HEX.ok
+  const color = idle ? HEX.muted : stalled ? HEX.warn : HEX.ok
   const closed = live.steps
     .filter(s => s !== open)
     .map(s => {

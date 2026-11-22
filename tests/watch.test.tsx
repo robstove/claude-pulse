@@ -301,14 +301,15 @@ test('past the stall limit the open step is amber and still', async () => {
   expect(source).not.toContain('class="ring"')
 })
 
-test('a call put to approval is grey and still, and never counts as quiet', async () => {
+test('a call put to approval shows as running, green and moving, and never counts as quiet', async () => {
+  // In auto mode the classifier decides nearly every call that writes, so these calls are usually running.
   const steps = running().steps.map(st => (st.toMs === null ? { ...st, waits: true } : st))
   const live = running({ steps, ms: 300_000, quietMs: 240_000 })
-  expect(liveStatus(live).now).toBe('Bash · npm · approval asked 3m 59s')
+  expect(liveStatus(live).now).toBe('Bash · npm · running 3m 59s')
   expect(liveStatus(live).stalled).toBe(false)
   const source = stripSvg(400, live)
-  expect(source).toContain('#8b949e')
-  expect(source).not.toContain('class="sweep"')
+  expect(source).toContain('#3fb950')
+  expect(source).toContain('class="sweep"')
   expect(source).not.toContain('#d29922')
 })
 
