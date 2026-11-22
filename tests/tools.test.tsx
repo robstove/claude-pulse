@@ -113,7 +113,7 @@ test('a background task is timed to its notification, which is no prompt of the 
   expect(await running.find({ type: 'Text', text: /^1 in background$/ })).toBeDefined()
   // No turn runs, but the task still works, so the header says Live.
   expect((await running.find({ type: 'Text', text: 'Live' }))?.props.color).toBe('success')
-  expect(await running.find({ type: 'Text', text: 'Elapsed · 1 background task' })).toBeDefined()
+  expect(await running.find({ type: 'Text', text: '1 background task' })).toBeDefined()
   await running.unmount()
   const dot = await $.ui.mount({ ...PANE, surface: 'desktop' })
   const svg = (await dot.findAll({ type: 'Svg' })).find(c => c.props.width === 18)

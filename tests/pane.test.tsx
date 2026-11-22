@@ -104,7 +104,7 @@ test('a running turn ticks once a second and stops when it ends', async ($, on) 
 
   now = 22_400
   const running = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect(await running.find({ type: 'Text', text: 'Elapsed · running 12s' })).toBeDefined()
+  expect(await running.find({ type: 'Text', text: 'running 12s' })).toBeDefined()
   await running.unmount()
 
   await $.turn.complete({ answer: '', durationMs: 12_400, isAborted: false, turnId: 't1', reason: 'answer' })

@@ -56,10 +56,12 @@ export const header: Section = ({ Box, Text, Svg }, { m, usage, now, elapsedMs, 
             {word}
           </Text>
         </Box>
-        <Text size="caption" color={tone} dimColor={tone === undefined} tabular>
-          {/* The label stays, so the big number never reads as the turn's time. */}
-          {live !== null ? `Elapsed · running ${fmtMs(Math.max(1000, Math.floor(live.ms / 1000) * 1000))}` : tasks.length > 0 ? `Elapsed · ${background}` : 'Elapsed'}
-        </Text>
+        {/* What runs: the turn's time, or the background tasks; nothing while idle. */}
+        {state !== 'idle' && (
+          <Text size="caption" color={tone} tabular>
+            {live !== null ? `running ${fmtMs(Math.max(1000, Math.floor(live.ms / 1000) * 1000))}` : background}
+          </Text>
+        )}
       </Box>
       <Box flexDirection="row" justifyContent="space-between" alignItems="flex-start">
         <Box flexDirection="column">
@@ -70,9 +72,15 @@ export const header: Section = ({ Box, Text, Svg }, { m, usage, now, elapsedMs, 
             Session cost{perHour !== null ? ` · ${fmtUsd(perHour)}/h` : ''}
           </Text>
         </Box>
-        <Text size="heading" tabular>
-          {fmtMs(elapsedMs)}
-        </Text>
+        {/* The label sits under the number, so the session's age never reads as the turn's time. */}
+        <Box flexDirection="column" alignItems="flex-end">
+          <Text size="heading" tabular>
+            {fmtMs(elapsedMs)}
+          </Text>
+          <Text size="caption" dimColor>
+            Elapsed
+          </Text>
+        </Box>
       </Box>
     </Box>
   )

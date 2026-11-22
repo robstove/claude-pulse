@@ -34,7 +34,7 @@ test('the pane header dot breathes and rings green while a turn runs, is amber a
   expect(busy.color).toBe('success')
   const term = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect((await term.find({ type: 'Text', text: '●' }))?.props.color).toBe('success')
-  expect(await term.find({ type: 'Text', text: 'Elapsed · running 12s' })).toBeDefined()
+  expect(await term.find({ type: 'Text', text: 'running 12s' })).toBeDefined()
   expect(await term.find({ type: 'Text', text: /^━+$/ })).toBeUndefined()
   await term.unmount()
   state.now += 4 * 60_000
